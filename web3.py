@@ -9,6 +9,7 @@ import requests
 import gzip
 import cPickle
 import re
+import zlib
 from threading import Thread
 from bs4 import BeautifulSoup as BS
 import sys,time
@@ -32,18 +33,18 @@ Multithreading for WebReader
         self.politeness = politeness
         self.soup = soup
     def terminate(self):
-        self.queue_address.put(None)
+        self.queue_address.put((None,None,))
     def run(self):
         while True:
-            url = self.queue_address.get()
+            url,params = self.queue_address.get()
             if url == None:
                 self.queue_address.task_done()
                 break
-            wr = WebReader2(url,timeout = self.timeout)
-            page = wr.read(soup = self.soup)
-            self.queue_page_source.put_nowait((url,page,))
+            wr = WebReader2(timeout = self.timeout)
+            page = wr.read(url=url, soup = self.soup, parameters = params)
+            self.queue_page_source.put_nowait((zlib.compress(wr.url),zlib.compress(page),))
             if self.loud:
-                sys.stdout.write("\rQueue size = %d"%self.queue_address.qsize())
+                sys.stdout.write("*")
             time.sleep(self.politeness)
             self.queue_address.task_done()
 def list_to_queue(list_data):
@@ -65,11 +66,18 @@ Queue to list
         except:
             break
     return list_data
-def run_web_reader_pool(address_list,n_pool = 4,loud = False, politeness = 0, soup = False):
+def run_web_reader_pool(address_list,n_pool = 4,loud = False, politeness = 0, soup = False, params = None):
     """
 Helper method, address (list) to [(url,page)]
     """
-    qin = list_to_queue(address_list)
+    assert len(address_list) == len(params), "Parameters should be porovided"
+    input_address = []
+    if params != None and type(params) == list :
+        for i,url in enumerate(address_list):
+            input_address.append((url,params[i]))
+    else:
+        input_address = [(url,None) for url in address_list]
+    qin = list_to_queue(input_address)
     qout = Queue()
     tasks = []
     if len(address_list) < n_pool:
@@ -122,6 +130,7 @@ See also, bs4 (BeautifulSoup).
                                 params = parameters)
             self.connection_status = con.status_code
             self.encoding = con.encoding
+            self.url = con.url
             if self.connection_status == requests.codes.ok:
                 self.text = con.text
                 if self.loud:
