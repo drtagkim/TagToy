@@ -28,12 +28,30 @@ class UsPatentLiteral:
         "FIELD2":"",
         "d":"PTXT"
     }
+    advanced_search_param = {
+        "Sect1":"PTO2",
+        "Sect2":"HITOFF",
+        "u":"/netahtml/PTO/search-adv.htm",
+        "r":"0",
+        "p":"1",
+        "f":"S",
+        "l":"50",
+        "Query":"",
+        "d":"PTXT"
+    }
+    advanced_search_term = {
+        "company":"AN",
+        "issued":"ISD", #ISD/1/1/1995 (for example)
+        "issued_link":"->", # ISD/1/1/1995->mon/day/year
+        "us_classification":"CCL" #Current US Classification
+        # if you want to concatenate queries, use blank (not plus!) and "AND".
+    }
 # urllib.quote_plus, unquote_plus...
 
 class PatentSearcher:
     def __init__(self):
-        self.results = None
-        self.patent_pages = []
+        self.results = None #main page for collecting links
+        self.patent_pages = [] #actual webpage (patent) title and url
     def get_total_patent_number_pagination(self, soup, line_cnt = 50):
         """
 |  input = (soup object on patent main page)
@@ -136,14 +154,19 @@ class PatentPageAnalyzer:
                     result.append(copy.deepcopy(ti_sub[1:]))
         return result
     def find_info_table(self,soup):
+        """
+|  HOT FIX! 2014/06/09
+        """
         tables = soup('table')
         target_table = None
         for table in tables:
             text = table.text
+            # there is a unicode error because of some characters...like cp949 (euc-kr)
+            # we need to correct this.
             txt1 = re.findall(r'Inventors:',text)
             txt2 = re.findall(r'Assignee:',text)
-            txt3 = re.findall(r'Family ID:',text)
-            if len(txt1) > 0 and len(txt2) > 0 and len(txt3) > 0:
+            #txt3 = re.findall(r'Family ID:',text)
+            if len(txt1) > 0 and len(txt2) > 0: #and len(txt3) > 0:
                 target_table = table
         assert target_table != None, "Error in data"
         result = {}

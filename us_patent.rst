@@ -16,3 +16,11 @@ zlib.decompress  / ps.results[0][0]:URL ps.results[0][1]:page
     
     >>> ps.patent_pages
     
+ps.patent_pages[0][0]:title, ps.patent_pages[0][1]:URL
+
+
+    >>> ppa = PatentPageAnalyzer()
+    >>> soup = ppa.read_item_page(ps.patent_pages[0])
+    >>> references = ppa.find_reference_table(soup)
+    >>> info = ppa.find_info_table(soup)
+    
