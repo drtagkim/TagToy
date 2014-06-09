@@ -2,6 +2,13 @@
 Taekyung Kim
 US Patent Search
 '''
+
+'''
+** NOTE **
+urllib.unquote_plus("%2Fnetahtml%2FPTO%2Fsearch-adv.htm")
+
+
+'''
 from web3 import WebReader2 as WR
 from web3 import list_to_queue #helper
 from web3 import queue_to_list #helper
