@@ -32,7 +32,7 @@ class UsPatentLiteral:
 
 class PatentSearcher:
     def __init__(self):
-        self.result = None
+        self.results = None
         self.patent_pages = []
     def get_total_patent_number_pagination(self, soup, line_cnt = 50):
         """
@@ -79,7 +79,7 @@ class PatentSearcher:
         if loud:
             print "\n-- Complete --"
     def export_results_pickle(self, fname,explain=False):
-        assert self.result != None, "You don't have results."
+        assert self.results != None, "You don't have results."
         if explain:
             print "use cPickle\nThe result is a list object.\nEach item is tuple: (zlib,zlib)."
         f = open(fname,'wb')
@@ -117,21 +117,52 @@ class PatentSearcher:
                         url_item = "na"
                     patent_pages_append((title,url_item))
         print "OK"
-
-
-def get_tnum(soup, line_cnt = 50):
-    assert soup != None,"Soup object should not be None"
-    assert line_cnt > 0, "Line count should be positive"
-    text = soup.text
-    tn = re.findall(r": ([0-9,]+) patents",text)
-    if len(tn) > 0:
-        tnn = int(tn[0].replace(",",""))
-        quti = divmod(tnn,line_cnt)
-        if quti[1] > 0:
-            pagination_cnt = quti[0] + 1
-        else:
-            pagination_cnt = quti[0]
-        return (tnn,pagination_cnt,)
-    else:
-        return (0,0,)
-
+class PatentPageAnalyzer:
+    def read_item_page(self,item):
+        title = item[0]
+        url = item[1]
+        wr = WR()
+        page = wr.read(url=url)
+        return BS(page,'html.parser')
+    def find_reference_table(self,soup):
+        markup_text = soup(text=re.compile(r"U.S. Patent Documents"))
+        result = []
+        if len(markup_text) > 0:
+            table_ele = markup_text[0].parent.parent.next_sibling.next_sibling
+            table_items = table_ele('tr')
+            for ti in table_items:
+                ti_sub = ti.text.split('\n')
+                if len(ti_sub) == 4:
+                    result.append(copy.deepcopy(ti_sub[1:]))
+        return result
+    def find_info_table(self,soup):
+        tables = soup('table')
+        target_table = None
+        for table in tables:
+            text = table.text
+            txt1 = re.findall(r'Inventors:',text)
+            txt2 = re.findall(r'Assignee:',text)
+            txt3 = re.findall(r'Family ID:',text)
+            if len(txt1) > 0 and len(txt2) > 0 and len(txt3) > 0:
+                target_table = table
+        assert target_table != None, "Error in data"
+        result = {}
+        trs = target_table('tr')
+        for tr in trs:
+            th = tr('th')
+            td = tr('td')
+            if len(th) > 0:
+                key = th[0].text.strip()
+                key = re.findall(r'.+:',key)
+                if len(key) > 0:
+                    key = key[0].replace(":","").strip()
+                if len(key) > 0 and len(td) > 0:
+                    try:
+                        content = re.sub(r"\n"," ",td[0].text.strip())
+                        content = re.sub(r"\s\s+"," ",content)
+                    except:
+                        content = ""
+                    result[key] = content
+                else:
+                    result[key] = ""
+        return result #TODO - test
