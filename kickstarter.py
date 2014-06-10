@@ -1,19 +1,29 @@
-#-------------------------------------------------------------------------------
-# Name:        module1
-# Purpose:
-#
-# Author:      drtagkim
-#
-# Created:     29-05-2014
-# Copyright:   (c) drtagkim 2014
-# Licence:     <your licence>
-#-------------------------------------------------------------------------------
+'''
+** EXAMPLE **
 
+
+** TODO **
+
+'''
+
+
+
+
+
+# PROGRAM STARTS
+# -- Web --
 from web3 import PhantomBrowser as PB
 from bs4 import BeautifulSoup as BS
-import time,sys,re,math,re,csv
-
+# -- System --
+import time,sys,re,math,re,csv,zlib
+# -- Multithreading --
+from threading Thread, active_count
+from Queue import Queue
+#
 class KICKSTARTER:
+    """
+|  General string values for the Kickstarter site
+    """
     CATEGORY_ART = "https://www.kickstarter.com/discover/advanced?category_id=1&sort=launch_date"
     CATEGORY_COMICS = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=launch_date"
     CATEGORY_DANCE = "https://www.kickstarter.com/discover/advanced?category_id=6&sort=launch_date"
@@ -81,6 +91,8 @@ class KickstarterProjectCollector:
                 sys.stdout.write(" OK\n")
         pb.page_source_save(foutput)
         del pb
+        
+
 class KickstarterCard:
     def __init__(self,collection_id):
         self.collection_id = collection_id
@@ -235,3 +247,75 @@ class KickstarterProjectAnalyzer:
                     if len(stat3_bin) > 0:
                         funded_end = stat3_bin[0].text.strip().replace("\t","").replace("\n","")
         return (funded_text,pledged_text,days_to_go_text,due_day_date,funded_end)
+# Clone of KickstarterProjectCollector
+class KsProjectProbe(Thread):
+    def __init__(self,url_queue,bench_mark):
+        Thread.__init__(self)
+        #self.url = url
+        self.url_queue = url_queue
+        self.bench_mark = bench_mark #bench mark card (to decide a stopping point)
+    def run(self):
+        while 1:
+            url = self.url_queue.get()
+            if url == None:
+                break
+            else:
+                assert len(self.url) > 0, "Error"
+                pb, first_only =  self.factory_kickstarter(self.url)
+                if not first_only:
+                    N = self.target_N(pb)
+                    for i in xrange(N):
+                        # evaluate, compare data with the benchmark -> if nothing new? stop! if new? add!
+                        wait_tolerance = 15
+                        pb.scroll_down()
+                        sys.stdout.write("*")
+                        while pb.check_scroll_complete_ajax() and i < N:
+                            time.sleep(1)
+                            sys.stdout.write(".")
+                            wait_tolerance -= 1
+                            if wait_tolerance < 0:
+                                break
+                        sys.stdout.write("$")
+                #TODO -> pb.get_page_source()
+    def factory_kickstarter(self,url):
+        pb = PB()
+        pb.goto(url)
+        first_only = True
+        try:
+            btn_reload = pb.xpath_element(KICKSTARTER.XPATH_RELOAD_BUTTON)
+            btn_reload.click()
+            first_only = False
+        except:
+            pass
+        return (pb,first_only)
+    def target_N(self,phantomB):
+        counter_we = phantomB.css_selector_element(KICKSTARTER.CSS_COUNTER)
+        counter_str = counter_we.text.strip()
+        temp_1 = re.findall(r'[0-9,]+',counter_str)
+        if len(temp_1) > 0:
+            counter_n = int(temp_1[0].replace(",",""))
+        else:
+            counter_n = 0
+        target_n = int(math.ceil(counter_n / float(20) - 1))
+        # COUNTER <= 20 * (N + 1)
+        return target_n
+    def execute(self,foutput):
+        assert len(self.url) > 0, "Error"
+        pb, first_only =  self.factory_kickstarter(self.url)
+        if not first_only:
+            N = self.target_N(pb)
+            for i in xrange(N):
+                wait_tolerance = 15
+                pb.scroll_down()
+                sys.stdout.write("page: %03d" % (i,))
+                while pb.check_scroll_complete_ajax() and i < N:
+                    time.sleep(1)
+                    sys.stdout.write(".")
+                    wait_tolerance -= 1
+                    if wait_tolerance < 0:
+                        break
+                sys.stdout.write(" OK\n")
+        pb.page_source_save(foutput)
+        del pb
+        
+# PROGRAM END
