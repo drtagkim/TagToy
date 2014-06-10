@@ -9,7 +9,6 @@ import requests
 import gzip
 import cPickle
 import re
-import zlib
 from threading import Thread
 from bs4 import BeautifulSoup as BS
 import sys,time
@@ -33,18 +32,18 @@ Multithreading for WebReader
         self.politeness = politeness
         self.soup = soup
     def terminate(self):
-        self.queue_address.put((None,None,))
+        self.queue_address.put(None)
     def run(self):
         while True:
-            url,params = self.queue_address.get()
+            url = self.queue_address.get()
             if url == None:
                 self.queue_address.task_done()
                 break
-            wr = WebReader2(timeout = self.timeout)
-            page = wr.read(url=url, soup = self.soup, parameters = params)
-            self.queue_page_source.put_nowait((zlib.compress(wr.url),zlib.compress(page),))
+            wr = WebReader2(url,timeout = self.timeout)
+            page = wr.read(soup = self.soup)
+            self.queue_page_source.put_nowait((url,page,))
             if self.loud:
-                sys.stdout.write("*")
+                sys.stdout.write("\rQueue size = %d"%self.queue_address.qsize())
             time.sleep(self.politeness)
             self.queue_address.task_done()
 def list_to_queue(list_data):
@@ -66,18 +65,11 @@ Queue to list
         except:
             break
     return list_data
-def run_web_reader_pool(address_list,n_pool = 4,loud = False, politeness = 0, soup = False, params = None):
+def run_web_reader_pool(address_list,n_pool = 4,loud = False, politeness = 0, soup = False):
     """
 Helper method, address (list) to [(url,page)]
     """
-    assert len(address_list) == len(params), "Parameters should be porovided"
-    input_address = []
-    if params != None and type(params) == list :
-        for i,url in enumerate(address_list):
-            input_address.append((url,params[i]))
-    else:
-        input_address = [(url,None) for url in address_list]
-    qin = list_to_queue(input_address)
+    qin = list_to_queue(address_list)
     qout = Queue()
     tasks = []
     if len(address_list) < n_pool:
@@ -106,8 +98,7 @@ You do not have to input 'url' here. Input URL address when you call read() func
         self.timeout = timeout
         self.encoding = ""
         self.headers = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
-                         'connection' : 'close',
-                         'charset'    : 'utf-8',}
+                         'connection' : 'close' }
         self.loud = loud
         self.text = ''
         self.soup = None
@@ -131,7 +122,6 @@ See also, bs4 (BeautifulSoup).
                                 params = parameters)
             self.connection_status = con.status_code
             self.encoding = con.encoding
-            self.url = con.url
             if self.connection_status == requests.codes.ok:
                 self.text = con.text
                 if self.loud:
@@ -242,6 +232,11 @@ select.deselect_all()
     def wait_ajax(self,driver):
         try:
             return 0 == driver.execute_script("return jQuery.active")
+        except WebDriverException:
+            pass
+    def check_scroll_complete_ajax(self):
+        try:
+            return self.driver.execute_script("return $(document).height() == $(window).height()+$(window).scrollTop();")
         except WebDriverException:
             pass
     def scroll_down(self,patient=30):
