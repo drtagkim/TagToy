@@ -264,26 +264,24 @@ class KsProjectProbe(Thread):
             try:
                 url = self.url_queue.get(block=True,timeout=10) #wait for 10 second
                 sys.stdout.write("\nData received: %s\n" % url)
-                sys.stdout.flush()
                 assert len(url) > 0, "Error"
                 pb, first_only =  self.factory_kickstarter(url)
                 if not first_only:
                     N = self.target_N(pb)
                     for i in xrange(N):
                         # evaluate, compare data with the benchmark -> if nothing new? stop! if new? add!
+                        wait_cue = 1
                         wait_tolerance = 15
                         pb.scroll_down()
                         sys.stdout.write("^")
-                        sys.stdout.flush()
                         while pb.check_scroll_complete_ajax() and i < N:
-                            time.sleep(1)
+                            time.sleep(wait_cue)
+                            wait_cue += 1
                             sys.stdout.write(".")
-                            sys.stdout.flush()
                             wait_tolerance -= 1
                             if wait_tolerance < 0:
                                 break
                         sys.stdout.write("$")
-                        sys.stdout.flush()
                 #TODO -> pb.get_page_source()
                 del pb # terminate the session
             except Queue.Empty:
