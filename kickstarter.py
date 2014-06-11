@@ -17,8 +17,8 @@ from bs4 import BeautifulSoup as BS
 # -- System --
 import time,sys,re,math,re,csv,zlib
 # -- Multithreading --
-from threading Thread, active_count
-from Queue import Queue
+from threading import Thread, active_count
+import Queue
 #
 class KICKSTARTER:
     """
@@ -91,7 +91,7 @@ class KickstarterProjectCollector:
                 sys.stdout.write(" OK\n")
         pb.page_source_save(foutput)
         del pb
-        
+
 
 class KickstarterCard:
     def __init__(self,collection_id):
@@ -249,34 +249,46 @@ class KickstarterProjectAnalyzer:
         return (funded_text,pledged_text,days_to_go_text,due_day_date,funded_end)
 # Clone of KickstarterProjectCollector
 class KsProjectProbe(Thread):
-    def __init__(self,url_queue,bench_mark):
+    def __init__(self):
         Thread.__init__(self)
         #self.url = url
-        self.url_queue = url_queue
-        self.bench_mark = bench_mark #bench mark card (to decide a stopping point)
+        self.url_queue = Queue.Queue()
+        self.running = True
+        #self.bench_mark = bench_mark #bench mark card (to decide a stopping point)
+    def add(self,url):
+        self.url_queue.put(url)
+    def stop(self):
+        self.running = False
     def run(self):
-        while 1:
-            url = self.url_queue.get()
-            if url == None:
-                break
-            else:
-                assert len(self.url) > 0, "Error"
-                pb, first_only =  self.factory_kickstarter(self.url)
+        while self.running:
+            try:
+                url = self.url_queue.get(block=True,timeout=10) #wait for 10 second
+                sys.stdout.write("\nData received: %s\n" % url)
+                sys.stdout.flush()
+                assert len(url) > 0, "Error"
+                pb, first_only =  self.factory_kickstarter(url)
                 if not first_only:
                     N = self.target_N(pb)
                     for i in xrange(N):
                         # evaluate, compare data with the benchmark -> if nothing new? stop! if new? add!
                         wait_tolerance = 15
                         pb.scroll_down()
-                        sys.stdout.write("*")
+                        sys.stdout.write("^")
+                        sys.stdout.flush()
                         while pb.check_scroll_complete_ajax() and i < N:
                             time.sleep(1)
                             sys.stdout.write(".")
+                            sys.stdout.flush()
                             wait_tolerance -= 1
                             if wait_tolerance < 0:
                                 break
                         sys.stdout.write("$")
+                        sys.stdout.flush()
                 #TODO -> pb.get_page_source()
+                del pb # terminate the session
+            except Queue.Empty:
+                sys.stdout.write(".")
+                sys.stdout.flush()
     def factory_kickstarter(self,url):
         pb = PB()
         pb.goto(url)
@@ -317,5 +329,5 @@ class KsProjectProbe(Thread):
                 sys.stdout.write(" OK\n")
         pb.page_source_save(foutput)
         del pb
-        
+
 # PROGRAM END
