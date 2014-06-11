@@ -267,6 +267,7 @@ class KsProjectProbe(Thread):
             try:
                 url = self.url_queue.get(block=True,timeout=10) #wait for 10 second
                 sys.stdout.write("\nData received: %s\n" % url)
+                sys.stdout.write("At %s\n" % time.asctime(time.localtime()))
                 sys.stdout.flush()
                 assert len(url) > 0, "Error"
                 pb, first_only =  self.factory_kickstarter(url)
@@ -282,7 +283,7 @@ class KsProjectProbe(Thread):
                         while pb.check_scroll_complete_ajax() and i < N:
                             time.sleep(wait_cue)
                             wait_cue += 1
-                            sys.stdout.write(".")
+                            sys.stdout.write("*")
                             sys.stdout.flush()
                             wait_tolerance -= 1
                             if wait_tolerance < 0:
@@ -291,6 +292,9 @@ class KsProjectProbe(Thread):
                         sys.stdout.flush()
                 #TODO -> pb.get_page_source()
                 del pb # terminate the session
+                sys.stdout.write("\nWork complete\n")
+                sys.stdout.write("At %s\n\n"%time.asctime(time.localtime()))
+                sys.stdout.flush()
             except Queue.Empty:
                 sys.stdout.write(".")
                 sys.stdout.flush()
