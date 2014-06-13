@@ -242,13 +242,18 @@ select.deselect_all()
     def scroll_down(self,patient=30):
         script = "window.scrollTo(0, document.body.scrollHeight);"
         self.execute_javascript(script)
-        WebDriverWait(self.driver,patient).until(self.wait_ajax,"Timeout waiting for page to load")
-        #time.sleep(patient)
+        try:
+            WebDriverWait(self.driver,patient).until(self.wait_ajax,"Timeout waiting for page to load")
+            return True
+        except:
+            return False # no ajax
+    def close(self):
+        self.driver.quit()
     def __del__(self):
         """
 >>> del pb
         """
-        self.driver.quit()
+        self.close()
 
 class BSHelper:
     def __init__(self):

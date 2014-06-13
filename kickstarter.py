@@ -13,17 +13,23 @@
 # PROGRAM STARTS
 # -- Web --
 from web3 import PhantomBrowser as PB
+from web3 import WebReader2 as WR
 from bs4 import BeautifulSoup as BS
 # -- System --
 import time,sys,re,math,re,csv,zlib
 # -- Multithreading --
 from threading import Thread, active_count
-import Queue
+import Queue,re
+# -- Web, Imaging --
+from PIL import Image
+from StringIO import StringIO
+import requests #Apache requests
 #
 class KICKSTARTER:
     """
 |  General string values for the Kickstarter site
     """
+    MAIN = "https://www.kickstarter.com"
     CATEGORY_ART = "https://www.kickstarter.com/discover/advanced?category_id=1&sort=launch_date"
     CATEGORY_COMICS = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=launch_date"
     CATEGORY_DANCE = "https://www.kickstarter.com/discover/advanced?category_id=6&sort=launch_date"
@@ -80,11 +86,13 @@ class KickstarterProjectCollector:
             N = self.target_N(pb)
             for i in xrange(N):
                 wait_tolerance = 15
+                politeness = 1
                 pb.scroll_down()
                 sys.stdout.write("page: %03d" % (i,))
                 sys.stdout.flush()
                 while pb.check_scroll_complete_ajax() and i < N:
-                    time.sleep(1)
+                    time.sleep(politeness)
+                    politeness +=1 
                     sys.stdout.write(".")
                     sys.stdout.flush()
                     wait_tolerance -= 1
@@ -250,6 +258,293 @@ class KickstarterProjectAnalyzer:
                     if len(stat3_bin) > 0:
                         funded_end = stat3_bin[0].text.strip().replace("\t","").replace("\n","")
         return (funded_text,pledged_text,days_to_go_text,due_day_date,funded_end)
+class KickstarterPageAnalyzer:
+    """
+|  Page analyzer
+|  For example, https://www.kickstarter.com/projects/1311317428/a-limited-edition-cleverly-designed-leather-collec/backers
+|  >>> kpa = KickstarterPageAnalyzer()
+|  >>> kpa.read(url)
+|  >>> kpa.analyze()
+
+    """
+    def __init__(self,quietly=True):
+        self.pb = None #phantom browser
+        self.quietly = quietly
+        #data clear
+        self.clear()
+    def clear(self):
+        self.url = ""
+        self.stat_result = ()
+        self.projects_reward_result = []
+        self.images = []
+        self.condition_desc = ""
+        self.full_description = ""
+        self.risks = ""
+        self.backers = []
+    def terminate(self):
+        self.pb.close()
+        del self.pb
+    def read(self,url):
+        if not self.quietly:
+            sys.stdout.write("Get set...")
+            sys.stdout.flush()
+        if self.pb == None:
+            self.pb = PB()
+        self.url = url
+        self.pb.goto(url)
+        if not self.quietly:
+            sys.stdout.write("OK\n")
+            sys.stdout.flush()
+    def analyze(self):
+        pb = self.pb
+        page = pb.get_page_source()
+        self.page_compressed = zlib.compress(page.encode('utf-8'))
+        if not self.quietly:
+            sys.stdout.write("Page data compressed: self.page_compressed..\n")
+            sys.stdout.flush()
+        soup = BS(page,'html.parser')
+        assert soup != None, "No Page!"
+        #main page
+        if not self.quietly:
+            sys.stdout.write("..Main..")
+            sys.stdout.flush()
+        self.analyze_main(soup)
+        if not self.quietly:
+            sys.stdout.write("OK\n")
+            sys.stdout.flush()
+        #backers
+        btn = pb.css_selector_element("#backers_nav")
+        soup = None
+        if not self.quietly:
+            sys.stdout.write("..Visiting backers data..")
+            sys.stdout.flush()
+        try:
+            btn.click()
+            no_backers = True #which means, no update yet (still there may be backers)
+            last_backer_cursor = "-1"
+            #scroll down until we reach bottom
+            while 1:
+                p = pb.get_page_source()
+                s = BS(p,'html.parser')
+                current_rows = s.select("div.NS_backers__backing_row")
+                if len(current_rows) == 0:
+                    break
+                else:
+                    no_backers = False
+                # AJAX
+                last_backer_cursor_now = current_rows[-1]['data-cursor']
+                if last_backer_cursor != last_backer_cursor_now:
+                    last_backer_cursor = last_backer_cursor_now
+                    if pb.scroll_down():
+                        wait_tolerance = 15
+                        politeness = 1
+                        while pb.check_scroll_complete_ajax():
+                            time.sleep(politeness)
+                            politeness += 1
+                            wait_tolerance -= 1
+                            if wait_tolerance < 0:
+                                break
+                    else:
+                        break
+                else:
+                    break
+            if not no_backers:
+                p = pb.get_page_source()
+                soup = BS(p,'html.parser')
+        except:
+            pass
+        if not self.quietly:
+            sys.stdout.write("OK\n")
+            sys.stdout.flush()
+        if soup != None:
+            if not self.quietly:
+                sys.stdout.write("..Backers..")
+                sys.stdout.flush()
+            self.analyze_backers(soup)
+            if not self.quietly:
+                sys.stdout.write("OK\n")
+                sys.stdout.flush()
+    def analyze_backers(self,soup):
+        # get backers data
+        frame = soup.select("div.NS_backers__backing_row .meta a")
+        backers = []
+        if len(frame) > 0:
+            for backer in frame:
+                profile_url = "%s%s"%(KICKSTARTER.MAIN,backer['href'])
+                backer_name = backer.text
+                backers.append((profile_url,backer_name,))
+        self.backers = backers
+    def analyze_main(self,soup):
+        
+        # statistics
+        self.stat_result = self.analyze_stat(soup)
+        # projects reward
+        frame = soup.select(".NS-projects-reward")
+        self.projects_reward_result = self.analyze_project_reward(frame)
+        # collect images
+        frame = soup.select("img.fit")
+        self.images = self.analyze_images(frame)
+        # collect add_data
+        frame = soup.select(".tiny_type")
+        self.condition_desc = self.analyze_condition(frame)
+        # collect full description
+        frame = soup.select(".full-description")
+        self.full_description = self.analyze_full_description(frame)
+        # collect risk
+        frame = soup.select("#risks")
+        self.risks = self.analyze_full_description(frame)
+    def analyze_full_description(self,frame):
+        rv = ""
+        if len(frame) > 0:
+            desc = frame[0].text
+            rv = re.sub(r"\n\n\n+","\n",desc)
+            try:
+                rv = rv.strip()
+            except:
+                pass
+        return rv
+    def analyze_condition(self,frame):
+        rv = ""
+        if len(frame) > 0:
+            rv = frame[0].text
+        return rv
+    def analyze_images(self,frame):
+        rv = []
+        if len(frame) > 0:
+            for imgf in frame:
+                src = imgf['src']
+                src = re.sub(r"\?.*$","",src)
+                r = requests.get(src)
+                if r.status_code == 200:
+                    rv.append(r.content)
+                del r
+        return rv
+    def analyze_stat(self,soup):
+        frame = soup.select("div#stats") #move
+        if len(frame) > 0:
+            frame1 = frame[0].select("div#backers_count")
+            if len(frame1) > 0:
+                number_of_backers = int(frame1[0]['data-backers-count'])
+            else:
+                number_of_backers = 0
+            frame2 = frame[0].select("div#pledged")
+            if len(frame2) > 0:
+                try:
+                    goal = float(frame2[0]['data-goal'])
+                except:
+                    goal = 0.0
+                try:
+                    percent_raised = float(frame2[0]['data-percent-raised'])
+                except:
+                    percent_raised = 0.0
+                try:
+                    amount_pledged = float(frame2[0]['data-pledged'])
+                except:
+                    amount_pledged = 0.0
+                frame21 = frame2[0]('data')
+                if len(frame21) > 0:
+                    try:
+                        currency = frame21[0]['data-currency']
+                    except:
+                        currency = ""
+                else:
+                    currency = ""
+            else:
+                goal = 0.0
+                percent_raised = 0.0
+                amount_pledged = 0.0
+                currency = ""
+            frame3 = frame[0].select("#project_duration_data")
+            if len(frame3) > 0:
+                try:
+                    duration = float(frame3[0]['data-duration'])
+                except:
+                    duration = 0.0
+                try:
+                    end_time = frame3[0]['data-end_time']
+                except:
+                    end_time = "na"
+                try:
+                    hours_remaining = float(frame3[0]['data-hours-remaining'])
+                except:
+                    hours_remaining = 0.0
+            else:
+                duration = 0.0
+                end_time =""
+                hours_remaining = 0.0
+        else:
+            number_of_backers = 0
+            goal = 0.0
+            percent_raised = 0.0
+            amount_pledged = 0.0
+            currency = ""
+            duration = 0.0
+            end_time = ""
+            hours_remaining = 0.0
+        #Facebook count
+        frame = soup.select("li.facebook.mr2 .count")
+        if len(frame) > 0:
+            facebook_count = int(frame[0].text) #error prone
+        else:
+            facebook_count = 0
+        #minimum pledge
+        frame = soup.select("#button-back-this-proj .money")
+        if len(frame) > 0:
+            minimum_pledge = frame[0].text
+        else:
+            minimum_pledge = ""
+        #update
+        return (number_of_backers,goal,percent_raised,
+                amount_pledged,currency,duration,end_time,
+                hours_remaining,facebook_count,minimum_pledge)
+    def analyze_project_reward(self,frame):
+        #projects reward
+        projects_reward_rv = []
+        if len(frame) > 0:
+            #
+            for card in frame:
+                #money
+                money_f = card.select(".money")
+                if len(money_f) > 0:
+                    money = money_f[0].text.strip()
+                else:
+                    money = ""
+                #backers
+                backers_f = card.select(".num-backers")
+                if len(backers_f) > 0:
+                    num_backers = backers_f[0].text.strip()
+                else:
+                    num_backers = ""
+                #description
+                desc_f = card.select(".desc")
+                if len(desc_f) > 0:
+                    description = desc_f[0].text.strip()
+                else:
+                    description = ""
+                #delivery
+                delivery_f = card.select("time")
+                if len(delivery_f) > 0:
+                    delivery_estimated = delivery_f[0]['datetime']
+                else:
+                    delivery_estimated = ""
+                #limited
+                limited_f = card.select(".limited-number")
+                if len(limited_f) > 0:
+                    limited_num = int(re.findall(r"of ([0-9]+)",limited_f[0].text)[0])
+                else:
+                    limited_num = 0
+                projects_reward_rv.append([
+                    money,
+                    num_backers,
+                    description,
+                    delivery_estimated,
+                    limited_num,
+                ])
+            #for
+        #
+        return projects_reward_rv
+            
+
 # Clone of KickstarterProjectCollector
 class KsProjectProbe(Thread):
     def __init__(self):
@@ -338,5 +633,7 @@ class KsProjectProbe(Thread):
                 sys.stdout.write(" OK\n")
         pb.page_source_save(foutput)
         del pb
-
+def save_image_to_file(image_data,fname):
+    i = Image.open(StringIO(image_data))
+    i.save('fname')
 # PROGRAM END
