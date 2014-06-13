@@ -652,6 +652,8 @@ def save_image_to_file(image_data,fname):
     KS.save_image_to_file(k,fname)
     
     """
+    if fname.endswith('.jpg'):
+        fname = "%s.jpg"%fname
     i = Image.open(StringIO(image_data))
-    i.save(fname) #should be jpg
+    i.save(fname)
 # PROGRAM END
