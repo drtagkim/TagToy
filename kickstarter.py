@@ -646,6 +646,12 @@ class KsProjectProbe(Thread):
         pb.page_source_save(foutput)
         del pb
 def save_image_to_file(image_data,fname):
+    """
+>>> for i,k in enumerate(kpa.images):
+    fname = "d:/%d.jpg"%i
+    KS.save_image_to_file(k,fname)
+    
+    """
     i = Image.open(StringIO(image_data))
-    i.save('fname')
+    i.save(fname) #should be jpg
 # PROGRAM END
