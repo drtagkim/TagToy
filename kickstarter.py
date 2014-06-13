@@ -261,7 +261,7 @@ class KickstarterProjectAnalyzer:
 class KickstarterPageAnalyzer:
     """
 |  Page analyzer
-|  For example, https://www.kickstarter.com/projects/1311317428/a-limited-edition-cleverly-designed-leather-collec/backers
+|  For example, https://www.kickstarter.com/projects/1311317428/a-limited-edition-cleverly-designed-leather-collec
 |  >>> kpa = KickstarterPageAnalyzer()
 |  >>> kpa.read(url)
 |  >>> kpa.analyze()
