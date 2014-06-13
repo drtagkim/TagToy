@@ -336,17 +336,29 @@ class KickstarterPageAnalyzer:
                 if last_backer_cursor != last_backer_cursor_now:
                     last_backer_cursor = last_backer_cursor_now
                     if pb.scroll_down():
+                        if not self.quietly:
+                            sys.stdout.write("^")
+                            sys.stdout.flush()
                         wait_tolerance = 15
                         politeness = 1
                         while pb.check_scroll_complete_ajax():
+                            if not self.quietly:
+                                sys.stdout.write("*")
+                                sys.stdout.flush()
                             time.sleep(politeness)
                             politeness += 1
                             wait_tolerance -= 1
                             if wait_tolerance < 0:
                                 break
+                        if not self.quietly:
+                            sys.stdout.write("$")
+                            sys.stdout.flush()
                     else:
                         break
                 else:
+                    if not self.quietly:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
                     break
             if not no_backers:
                 p = pb.get_page_source()
