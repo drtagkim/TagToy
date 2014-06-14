@@ -190,10 +190,11 @@ select.deselect_all()
         """
         from selenium import webdriver
         if noimage:
-            self.driver = webdriver.PhantomJS(service_args=['--load-images=no'])
+            self.driver = webdriver.PhantomJS(service_args=['--load-images=no',
+                                                            '--webdriver-loglevel=NONE'])
             # http://phantomjs.org/api/command-line.html (service_args reference)
         else:
-            self.driver = webdriver.PhantomJS()
+            self.driver = webdriver.PhantomJS(service_args=['--webdriver-loglevel=NONE'])
         self.driver.set_window_size(1024,768)
 
     def goto(self,url):
