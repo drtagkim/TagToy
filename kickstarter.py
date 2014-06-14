@@ -58,7 +58,7 @@ class KickstarterProjectCollector:
     def __init__(self,url):
         self.url = url
     def factory_kickstarter(self,url):
-        pb = PB()
+        pb = PB(noimage = True)
         pb.goto(url)
         first_only = True
         try:
@@ -281,7 +281,7 @@ class KickstarterPageAnalyzer:
             sys.stdout.write("Get set...")
             sys.stdout.flush()
         if self.pb == None:
-            self.pb = PB()
+            self.pb = PB(noimage=True)
         self.url = url
         self.pb.goto(url)
         if not self.quietly:
@@ -656,7 +656,7 @@ class KsProjectProbe(Thread):
                 sys.stdout.write(".")
                 sys.stdout.flush()
     def factory_kickstarter(self,url):
-        pb = PB()
+        pb = PB(noimage = True)
         pb.goto(url)
         first_only = True
         try:

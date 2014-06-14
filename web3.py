@@ -184,12 +184,16 @@ select.deselect_all()
 
 
     """
-    def __init__(self):
+    def __init__(self,noimage=False):
         """
 >>> pb = PhantomBrowser()
         """
         from selenium import webdriver
-        self.driver = webdriver.PhantomJS()
+        if noimage:
+            self.driver = webdriver.PhantomJS(service_args=['--load-images=no'])
+            # http://phantomjs.org/api/command-line.html (service_args reference)
+        else:
+            self.driver = webdriver.PhantomJS()
         self.driver.set_window_size(1024,768)
 
     def goto(self,url):
