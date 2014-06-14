@@ -16,6 +16,7 @@ from Queue import Queue
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support.ui import WebDriverWait
 
+
 #---------------------------------------------------------------
 class WebReaderPool(Thread):
     """
@@ -267,3 +268,29 @@ class BSHelper:
         tags = soup.find_all(text = re.compile(text_string)) #bs4.element.NavigableString (inherits string)
         tags_list = map(lambda x : x.strip(), tags)
         return tags_list
+
+class Mp4WebTag:
+    """
+>>> sudo pip install hsaudiotag
+>>> sudo pip install requests
+    """
+    def __init__(self):
+        pass
+    def get_duration(self,url,buff=500,explain=False):
+        if explain:
+            print "in seconds"
+        from StringIO import StringIO
+        from hsaudiotag import mp4        
+        r = requests.get(url,stream=True)
+        if r.status_code == 200:
+            a = r.raw.read(buff)
+            b = StringIO()
+            b.write(a)
+            c = mp4.File(b)
+            duration = c.duration
+            b.close()
+            r.close()
+            return duration
+        else:
+            return -1
+        
