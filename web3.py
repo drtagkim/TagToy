@@ -228,7 +228,7 @@ select.deselect_all()
         return self.driver.page_source
 
     def execute_javascript(self,script):
-        self.driver.execute_script(script)
+        return self.driver.execute_script(script)
     def wait_ajax(self,driver):
         try:
             return 0 == driver.execute_script("return jQuery.active")

@@ -84,22 +84,50 @@ class KickstarterProjectCollector:
         pb, first_only =  self.factory_kickstarter(self.url)
         if not first_only:
             N = self.target_N(pb)
-            for i in xrange(N):
-                wait_tolerance = 15
-                politeness = 1
-                pb.scroll_down()
-                sys.stdout.write("page: %03d" % (i,))
-                sys.stdout.flush()
-                while pb.check_scroll_complete_ajax() and i < N:
-                    time.sleep(politeness)
-                    politeness +=1 
-                    sys.stdout.write(".")
+            i = 0
+            terminate = False
+            while 1:
+                politeness = 0
+                if pb.scroll_down():
+                    sys.stdout.write("\r%s"%(" "*40,))
                     sys.stdout.flush()
-                    wait_tolerance -= 1
-                    if wait_tolerance < 0:
-                        break
-                sys.stdout.write(" OK\n")
-                sys.stdout.flush()
+                    sys.stdout.write("\rpage: %03d" % (i+1,))
+                    sys.stdout.flush()
+                    while 1:
+                        politeness += 1
+                        if pb.check_scroll_complete_ajax():
+                            if i < N:
+                                time.sleep(politeness)
+                                sys.stdout.write(".")
+                                sys.stdout.flush()
+                            else:
+                                terminate = True
+                                break
+                        else:
+                            break
+                if terminate:
+                    break
+                i += 1
+            #for i in xrange(N):
+                #wait_tolerance = 15
+                #politeness = 1
+                #pb.scroll_down()
+                #sys.stdout.write("page: %03d" % (i,))
+                #sys.stdout.flush()
+                #if pb.check_scroll_complete_ajax() and i >= N:
+                    #break
+                ##while not pb.check_scroll_complete_ajax() and i < N:
+                    ##time.sleep(politeness)
+                    ##politeness +=1 
+                    ##sys.stdout.write(".")
+                    ##sys.stdout.flush()
+                    ##wait_tolerance -= 1
+                    ##if wait_tolerance < 0:
+                        ##break
+                #sys.stdout.write(" OK\n")
+                #sys.stdout.flush()
+            sys.stdout.write("\nOK\n")
+            sys.stdout.flush()
         pb.page_source_save(foutput)
         del pb
 
@@ -107,16 +135,14 @@ class KickstarterProjectCollector:
 class KickstarterCard:
     def __init__(self,collection_id):
         self.collection_id = collection_id
-        self.title_text = ""
-        self.title_url = ""
-        self.author_text= ""
-        self.desc_text = ""
-        self.location_text = ""
-        self.funded_text = ""
-        self.pledged_text = ""
-        self.days_to_go_text = ""
-        self.due_day_date = ""
-        self.funded_end = ""
+        self.title_text = " "
+        self.title_url = " "
+        self.author_text= " "
+        self.desc_text = " "
+        self.location_text = " "
+        self.funded_text = " "
+        self.pledged_text = " "
+        self.days_to_go_text = " "
     def __str__(self):
         rv = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (
             self.collection_id,
@@ -127,9 +153,7 @@ class KickstarterCard:
             self.location_text.encode('utf-8'),
             self.funded_text.encode('utf-8'),
             self.pledged_text.encode('utf-8'),
-            self.days_to_go_text.encode('utf-8'),
-            self.due_day_date.encode('utf-8'),
-            self.funded_end.encode('utf-8'))
+            self.days_to_go_text.encode('utf-8'))
         return rv
     def line(self):
         return [self.collection_id,
@@ -140,9 +164,7 @@ class KickstarterCard:
             self.location_text.encode('utf-8'),
             self.funded_text.encode('utf-8'),
             self.pledged_text.encode('utf-8'),
-            self.days_to_go_text.encode('utf-8'),
-            self.due_day_date.encode('utf-8'),
-            self.funded_end.encode('utf-8')]
+            self.days_to_go_text.encode('utf-8')]
 
 class KickstarterProjectAnalyzer:
     def __init__(self,file_name):
@@ -169,7 +191,7 @@ class KickstarterProjectAnalyzer:
             kickstarter_card.author_text = self.get_author(card)
             kickstarter_card.desc_text = self.get_desc(card)
             kickstarter_card.location_text = self.get_location_name(card)
-            kickstarter_card.funded_text,kickstarter_card.pledged_text,kickstarter_card.days_to_go_text,kickstarter_card.due_day_date,kickstarter_card.funded_end = self.get_stat(card)
+            kickstarter_card.funded_text,kickstarter_card.pledged_text,kickstarter_card.days_to_go_text = self.get_stat(card)
             append_result(kickstarter_card)
     def export_result_tsv(self,file_name):
         f = open(file_name,'wb')
@@ -210,54 +232,22 @@ class KickstarterProjectAnalyzer:
         return location_text
     def get_stat(self,card):
         stat = card.select(KICKSTARTER.CSS_STAT)
-        funded_text = "0"
-        pledged_text = "0"
-        days_to_go_text = "0"
-        due_day_date = "0000-00-00"
-        funded_end = ""
+        funded_text = " "
+        pledged_text = " "
+        days_to_go_text = "funding unsuccessful"
         if len(stat) > 0:
-            stat_data = stat[0]('li')
-            if len(stat_data) > 0:
-                if len(stat_data) > 3:
-                    stat1_bin = stat_data[0]('strong')
-                    stat2_bin = stat_data[1]('strong')
-                    stat3_bin = stat_data[3]('strong')
-                    if len(stat1_bin) > 0:
-                        funded = stat1_bin[0].text.strip()
-                        a = re.findall(r"[0-9\.]+",funded)
-                        if len(a) > 0:
-                            funded_text = a[0]
-                    if len(stat2_bin) > 0:
-                        pledged = stat2_bin[0].text.strip()
-                        a = re.findall(r"[0-9\.]+",pledged)
-                        if len(a) > 0:
-                            pledged_text = a[0]
-                    if len(stat3_bin) > 0:
-                        days_to_go = stat3_bin[0].text.strip()
-                        a = re.findall(r"[0-9]+",days_to_go)
-                        if len(a) > 0:
-                            days_to_go_text = a[0]
-                        due_day = stat_data[3][KICKSTARTER.ATT_DUE_DATE].strip()
-                        b = re.findall(r"[0-9]{4}-[0-9]{2}-[0-9]{2}",due_day)
-                        if len(b) > 0:
-                            due_day_date = b[0]
-                else:
-                    stat1_bin = stat_data[0]('strong')
-                    stat2_bin = stat_data[1]('strong')
-                    stat3_bin = stat_data[2]('div')
-                    if len(stat1_bin) > 0:
-                        funded = stat1_bin[0].text.strip()
-                        a = re.findall(r"[0-9\.]+",funded)
-                        if len(a) > 0:
-                            funded_text = a[0]
-                    if len(stat2_bin) > 0:
-                        pledged = stat2_bin[0].text.strip()
-                        a = re.findall(r"[0-9\.]+",pledged)
-                        if len(a) > 0:
-                            pledged_text = a[0]
-                    if len(stat3_bin) > 0:
-                        funded_end = stat3_bin[0].text.strip().replace("\t","").replace("\n","")
-        return (funded_text,pledged_text,days_to_go_text,due_day_date,funded_end)
+            funded_text_ele = stat[0].select('li.first strong')
+            if len(funded_text_ele) > 0:
+                funded_text = funded_text_ele[0].text.strip()
+            pledged_text_ele = stat[0].select('li.pledged strong')
+            if len(pledged_text_ele) > 0:
+                pledged_text = pledged_text_ele[0].text.strip()
+            days_to_go_text_ele = stat[0].select('li.last strong div.num')
+            if len(days_to_go_text_ele) > 0:
+                days_to_go_text = days_to_go_text_ele[0].text.strip()
+            else:
+                days_to_go_text = "funded"
+        return (funded_text,pledged_text,days_to_go_text)
 class KickstarterPageAnalyzer:
     """
 |  Page analyzer
@@ -273,13 +263,15 @@ class KickstarterPageAnalyzer:
         #data clear
         self.clear()
     def clear(self):
-        self.url = ""
+        self.title = " "
+        self.founder = " "
+        self.url = " "
         self.stat_result = ()
         self.projects_reward_result = []
         self.images = []
-        self.condition_desc = ""
-        self.full_description = ""
-        self.risks = ""
+        self.condition_desc = " "
+        self.full_description = " "
+        self.risks = " "
         self.backers = []
     def terminate(self):
         self.pb.close()
@@ -323,43 +315,75 @@ class KickstarterPageAnalyzer:
             no_backers = True #which means, no update yet (still there may be backers)
             last_backer_cursor = "-1"
             #scroll down until we reach bottom
+            p = pb.get_page_source()
+            s = BS(p,'html.parser')
+            current_rows = s.select("div.NS_backers__backing_row")
+            if len(current_rows) != 0:
+                no_backers = False
+            breaker = False
             while 1:
-                p = pb.get_page_source()
-                s = BS(p,'html.parser')
-                current_rows = s.select("div.NS_backers__backing_row")
-                if len(current_rows) == 0:
-                    break
-                else:
-                    no_backers = False
-                # AJAX
-                last_backer_cursor_now = current_rows[-1]['data-cursor']
-                if last_backer_cursor != last_backer_cursor_now:
-                    last_backer_cursor = last_backer_cursor_now
-                    if pb.scroll_down():
-                        if not self.quietly:
-                            sys.stdout.write("^")
-                            sys.stdout.flush()
-                        wait_tolerance = 15
-                        politeness = 1
-                        while pb.check_scroll_complete_ajax():
-                            if not self.quietly:
-                                sys.stdout.write("*")
-                                sys.stdout.flush()
-                            time.sleep(politeness)
-                            politeness += 1
-                            wait_tolerance -= 1
-                            if wait_tolerance < 0:
-                                break
-                        if not self.quietly:
-                            sys.stdout.write("$")
-                            sys.stdout.flush()
-                    else:
-                        break
-                else:
+                safety = 1
+                if pb.scroll_down():
                     if not self.quietly:
-                        sys.stdout.write("\n")
+                        sys.stdout.write("^")
                         sys.stdout.flush()
+                    #checking...
+                    while 1:
+                        if pb.check_scroll_complete_ajax():
+                            if safety < 0:
+                                breaker = True
+                                break
+                            else:
+                                if not self.quietly:
+                                    sys.stdout.write(".")
+                                    sys.stdout.flush()
+                                time.sleep(1)
+                                safety -= 1
+                        else:
+                            break
+                if breaker:
                     break
+            if not self.quietly:
+                sys.stdout.write("$")
+                sys.stdout.flush()
+            #while 1:
+                #p = pb.get_page_source()
+                #s = BS(p,'html.parser')
+                #current_rows = s.select("div.NS_backers__backing_row")
+                #if len(current_rows) == 0:
+                    #break
+                #else:
+                    #no_backers = False
+                ## AJAX
+                
+                #last_backer_cursor_now = current_rows[-1]['data-cursor']
+                #if last_backer_cursor != last_backer_cursor_now:
+                    #last_backer_cursor = last_backer_cursor_now
+                    #if pb.scroll_down():
+                        #if not self.quietly:
+                            #sys.stdout.write("^")
+                            #sys.stdout.flush()
+                        #wait_tolerance = 2
+                        #politeness = 0.5
+                        #if pb.check_scroll_complete_ajax():
+                            #break
+                        #while pb.check_scroll_complete_ajax():
+                            #time.sleep(1)
+                            #if not self.quietly:
+                                #sys.stdout.write("*")
+                                #sys.stdout.flush()
+                            #if wait_tolerance < 0:
+                                #break
+                        #if not self.quietly:
+                            #sys.stdout.write("$")
+                            #sys.stdout.flush()
+                    #else:
+                        #break
+                #else:
+                    #if not self.quietly:
+                        #sys.stdout.write("\n")
+                        #sys.stdout.flush()
+                    #break
             if not no_backers:
                 p = pb.get_page_source()
                 soup = BS(p,'html.parser')
@@ -387,7 +411,14 @@ class KickstarterPageAnalyzer:
                 backers.append((profile_url,backer_name,))
         self.backers = backers
     def analyze_main(self,soup):
-        
+        #title
+        title_ele = soup.select('div.title')
+        if len(title_ele) > 0:
+            self.title = title_ele[0].text.strip()
+        #founder
+        founder_ele = re.findall(r"/projects/(.+)/",self.url)
+        if len(founder_ele) > 0:
+            self.founder = "https://www.kickstarter.com/profile/%s"%(founder_ele[0],)
         # statistics
         self.stat_result = self.analyze_stat(soup)
         # projects reward
@@ -496,7 +527,17 @@ class KickstarterPageAnalyzer:
         #Facebook count
         frame = soup.select("li.facebook.mr2 .count")
         if len(frame) > 0:
-            facebook_count = int(frame[0].text) #error prone
+            waiting = 1
+            while 1:
+                try:
+                    facebook_count = int(frame[0].text) #error prone
+                    break
+                except:
+                    time.sleep(1)
+                    if not self.quietly:
+                        sys.stdout.write("\r[facebook waiting...%d]\n"%waiting)
+                        sys.stdout.flush()
+                        waiting += 1
         else:
             facebook_count = 0
         #minimum pledge
@@ -580,23 +621,32 @@ class KsProjectProbe(Thread):
                 pb, first_only =  self.factory_kickstarter(url)
                 if not first_only:
                     N = self.target_N(pb)
-                    for i in xrange(N):
-                        # evaluate, compare data with the benchmark -> if nothing new? stop! if new? add!
-                        wait_cue = 1
-                        wait_tolerance = 15
-                        pb.scroll_down()
-                        sys.stdout.write("^")
-                        sys.stdout.flush()
-                        while pb.check_scroll_complete_ajax() and i < N:
-                            time.sleep(wait_cue)
-                            wait_cue += 1
-                            sys.stdout.write("*")
+                    i = 0
+                    terminate = False
+                    while 1:
+                        politeness = 0
+                        if pb.scroll_down():
+                            sys.stdout.write("^")
                             sys.stdout.flush()
-                            wait_tolerance -= 1
-                            if wait_tolerance < 0:
-                                break
-                        sys.stdout.write("$")
-                        sys.stdout.flush()
+                            while 1:
+                                politeness += 1
+                                if pb.check_scroll_complete_ajax():
+                                    if i < N:
+                                        time.sleep(politeness)
+                                        sys.stdout.write("*")
+                                        sys.stdout.flush()
+                                    else:
+                                        terminate = True
+                                        break
+                                else:
+                                    break
+                            sys.stdout.write("$")
+                            sys.stdout.flush()
+                        if terminate:
+                            break
+                        i += 1                    
+                    sys.stdout.write("OK\n")
+                    sys.stdout.flush()
                 #TODO -> pb.get_page_source()
                 del pb # terminate the session
                 sys.stdout.write("\nWork complete\n")
