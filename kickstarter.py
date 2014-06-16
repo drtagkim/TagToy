@@ -1,6 +1,6 @@
 '''
 ** EXAMPLE **
-
+hello kim.
 
 ** TODO **
 
