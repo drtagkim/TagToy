@@ -39,7 +39,7 @@ if __name__ == "__main__":
             print msg
             print "Socket error"
             break
-    inque.join() #no more data
+    #inque.join() #no more data
     for probe in probes: #terminate threads
         probe.stop()
         probe.join()
