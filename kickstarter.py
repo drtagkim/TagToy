@@ -16,7 +16,7 @@ import Queue,re
 from PIL import Image
 from StringIO import StringIO
 import requests #Apache requests
-
+import os, glob, shutil
 # PROGRAM STARTS ===========
 
 # global functions
@@ -741,4 +741,57 @@ class KsProjectProbe(Thread):
         # COUNTER <= 20 * (N + 1)
         return target_n
 
+class ksProjectPageAnalyzer(Thread):
+    """
+|  listen
+    """
+    def __init__(self,listener_dir,speaker_dir,reserver_dir,listen_duration=60):
+        Thread.__init__(self)
+        self.running = True
+        self.listener_dir = listener_dir #input
+        self.speaker_dir = speaker_dir #analysis result
+        self.reserver_dir = reserver_dir #move completed ones
+        self.listen_duration = listen_duration
+        if not os.path.exists(speaker_dir):
+            os.mkdir(speaker_dir)
+        if not os.path.exists(reserver_dir):
+            os.mkdir(reserver_dir)
+        sys.stdout.write("PROJECT PAGE ANALYZER STARTS...\n")
+        sys.stdout.write("\r...WAITING...")
+        sys.stdout.flush()
+    def stop(self):
+        self.running = False
+    def run(self):
+        while self.running:
+            try:
+                #collection id
+                collection_id = time_stamp()[:10] #year_month_day
+                #read file list
+                data_files = glob.glob("%s/*.*"%self.listener_dir)
+                for data_file in data_files:
+                    base_file_name = os.path.basename(data_file)
+                    remove_int = len("...PROCESSING: %s"%(base_file_name,))
+                    sys.stdout.write("\r...PROCESSING: %s"%(base_file_name,))
+                    sys.stdout.flush()
+                    kpa = KickstarterProjectAnalyzer(data_file)
+                    kpa.execute(collection_id)
+                    out_dir = "%s/%s"%(self.speaker_dir,collection_id)
+                    if not os.path.exists(out_dir):
+                        os.mkdir(out_dir)
+                    out_fname = "%s/%s.txt" % (out_dir,base_file_name)
+                    kpa.export_result_tsv(out_fname)
+                    res_dir = "%s/%s"%(self.reserver_dir,collection_id)
+                    if not os.path.exists(res_dir):
+                        os.mkdir(res_dir)
+                    res_fname = "%s/%s"%(res_dir,base_file_name)
+                    shutil.move(data_file,res_fname)
+                    sys.stdout.write("\r%s"%(" "*remove_int,))
+                    sys.stdout.flush()
+                sys.stdout.write("\r...WAITING...")
+                sys.stdout.flush()
+                time.sleep(self.listen_duration)
+            except KeyboardInterrupt:
+                break
+        sys.stdout.write("\nTHANK YOU.\n")
+        sys.stdout.flush()
 # PROGRAM END ===========
