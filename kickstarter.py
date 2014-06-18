@@ -1,22 +1,14 @@
 '''
-** EXAMPLE **
-hello kim.
-
-** TODO **
-
+Author: Taekyung Kim 2014
+Contact: masan.korea@gmail.com
 '''
-
-
-
-
-
-# PROGRAM STARTS
 # -- Web --
 from web3 import PhantomBrowser as PB
 from web3 import WebReader2 as WR
 from bs4 import BeautifulSoup as BS
 # -- System --
 import time,sys,re,math,re,csv,zlib
+from datetime import datetime
 # -- Multithreading --
 from threading import Thread, active_count
 import Queue,re
@@ -24,25 +16,44 @@ import Queue,re
 from PIL import Image
 from StringIO import StringIO
 import requests #Apache requests
-#
+
+# PROGRAM STARTS ===========
+
+# global functions
+def time_stamp():
+    now = time.localtime()
+    return "%04d_%02d_%02d_%02d_%02d" % (now.tm_year,now.tm_mon,now.tm_mday,now.tm_hour,now.tm_min)
+def save_image_to_file(image_data,fname):
+    """
+>>> for i,k in enumerate(kpa.images):
+    fname = "d:/%d.jpg"%i
+    KS.save_image_to_file(k,fname)
+    
+    """
+    if fname.endswith('.jpg'):
+        fname = "%s.jpg"%fname
+    i = Image.open(StringIO(image_data))
+    i.save(fname)
+
+# classes
 class KICKSTARTER:
     """
 |  General string values for the Kickstarter site
     """
     MAIN = "https://www.kickstarter.com"
-    CATEGORY_ART = "https://www.kickstarter.com/discover/advanced?category_id=1&sort=launch_date"
-    CATEGORY_COMICS = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=launch_date"
-    CATEGORY_DANCE = "https://www.kickstarter.com/discover/advanced?category_id=6&sort=launch_date"
-    CATEGORY_DESIGN = "https://www.kickstarter.com/discover/advanced?category_id=7&sort=launch_date"
-    CATEGORY_FASHION = "https://www.kickstarter.com/discover/advanced?category_id=9&sort=launch_date"
-    CATEGORY_FILM = "https://www.kickstarter.com/discover/advanced?category_id=11&sort=launch_date"
-    CATEGORY_FOOD = "https://www.kickstarter.com/discover/advanced?category_id=10&sort=launch_date"
-    CATEGORY_GAMES = "https://www.kickstarter.com/discover/advanced?category_id=12&sort=launch_date"
-    CATEGORY_MUSIC = "https://www.kickstarter.com/discover/advanced?category_id=14&sort=launch_date"
-    CATEGORY_PHOTOGRAPHY = "https://www.kickstarter.com/discover/advanced?category_id=15&sort=launch_date"
-    CATEGORY_PUBLISHING = "https://www.kickstarter.com/discover/advanced?category_id=18&sort=launch_date"
-    CATEGORY_TECHNOLOGY = "https://www.kickstarter.com/discover/advanced?category_id=16&sort=launch_date"
-    CATEGORY_THEATER = "https://www.kickstarter.com/discover/advanced?category_id=17&sort=launch_date"
+    CATEGORY_ART = "https://www.kickstarter.com/discover/advanced?category_id=1&sort=end_date"
+    CATEGORY_COMICS = "https://www.kickstarter.com/discover/advanced?category_id=3&sort=end_date"
+    CATEGORY_DANCE = "https://www.kickstarter.com/discover/advanced?category_id=6&sort=end_date"
+    CATEGORY_DESIGN = "https://www.kickstarter.com/discover/advanced?category_id=7&sort=end_date"
+    CATEGORY_FASHION = "https://www.kickstarter.com/discover/advanced?category_id=9&sort=end_date"
+    CATEGORY_FILM = "https://www.kickstarter.com/discover/advanced?category_id=11&sort=end_date"
+    CATEGORY_FOOD = "https://www.kickstarter.com/discover/advanced?category_id=10&sort=end_date"
+    CATEGORY_GAMES = "https://www.kickstarter.com/discover/advanced?category_id=12&sort=end_date"
+    CATEGORY_MUSIC = "https://www.kickstarter.com/discover/advanced?category_id=14&sort=end_date"
+    CATEGORY_PHOTOGRAPHY = "https://www.kickstarter.com/discover/advanced?category_id=15&sort=end_date"
+    CATEGORY_PUBLISHING = "https://www.kickstarter.com/discover/advanced?category_id=18&sort=end_date"
+    CATEGORY_TECHNOLOGY = "https://www.kickstarter.com/discover/advanced?category_id=16&sort=end_date"
+    CATEGORY_THEATER = "https://www.kickstarter.com/discover/advanced?category_id=17&sort=end_date"
     XPATH_RELOAD_BUTTON = "id('projects')/div/div/a"
     CSS_COUNTER = "b.count"
     CSS_GET_CARD = "div.project-card"
@@ -52,6 +63,7 @@ class KICKSTARTER:
     CSS_DESC2 = "p.blurb"
     CSS_LOCATION_NAME = "span.location-name"
     CSS_STAT = "ul.project-stats"
+    CSS_BOTTOM = "div.absolute-bottom"
     ATT_DUE_DATE = "data-end_time"
 
 class KickstarterProjectCollector:
@@ -128,7 +140,7 @@ class KickstarterProjectCollector:
                 #sys.stdout.flush()
             sys.stdout.write("\nOK\n")
             sys.stdout.flush()
-        pb.page_source_save(foutput)
+        pb.page_source_save(foutput,remove_js=True)
         del pb
 
 
@@ -165,6 +177,27 @@ class KickstarterCard:
             self.funded_text.encode('utf-8'),
             self.pledged_text.encode('utf-8'),
             self.days_to_go_text.encode('utf-8')]
+
+class KickstarterProjectFilter:
+    def analyze(self,page_source):
+        soup = BS(page_source,'html.parser')
+        cards = soup.select(KICKSTARTER.CSS_GET_CARD)
+        found_completed = False
+        if len(cards) > 0:
+            for card in cards:
+                stat = card.select(KICKSTARTER.CSS_BOTTOM)
+                if len(stat) > 0:
+                    text_in = stat[0].text.lower()
+                    compiled_re = re.findall(r'(\w{3}\s[0-9]{1,2},\s[0-9]{4})',text_in)
+                    if len(compiled_re) > 0:
+                        # today?
+                        current_time_stamp = datetime.strptime(compiled_re[0],'%b %d, %Y')
+                        today_time_stamp = datetime.today()
+                        tdff = today_time_stamp - current_time_stamp
+                        if tdff.days > 0: # containing past data
+                            found_completed = True
+                            break
+        return found_completed
 
 class KickstarterProjectAnalyzer:
     def __init__(self,file_name):
@@ -598,27 +631,33 @@ class KickstarterPageAnalyzer:
         return projects_reward_rv
             
 
-# Clone of KickstarterProjectCollector
 class KsProjectProbe(Thread):
-    def __init__(self):
+    def __init__(self,url_queue,continue_=False):
         Thread.__init__(self)
         #self.url = url
-        self.url_queue = Queue.Queue()
+        self.url_queue = url_queue
         self.running = True
+        self.repository = "" # file repository
+        self.continue_ = continue_
         #self.bench_mark = bench_mark #bench mark card (to decide a stopping point)
-    def add(self,url):
-        self.url_queue.put(url)
+    #def add(self,url):
+        #self.url_queue.put(url)
     def stop(self):
         self.running = False
     def run(self):
+        filter = KickstarterProjectFilter()
         while self.running:
             try:
-                url = self.url_queue.get(block=True,timeout=10) #wait for 10 second
+                url,identifier = self.url_queue.get(block=True,timeout=10) #wait for 10 second
                 sys.stdout.write("\nData received: %s\n" % url)
                 sys.stdout.write("At %s\n" % time.asctime(time.localtime()))
                 sys.stdout.flush()
+                start_tstamp = time_stamp()
                 assert len(url) > 0, "Error"
                 pb, first_only =  self.factory_kickstarter(url)
+                if self.continue_:
+                    if filter.analyze(pb.get_page_source()):
+                        first_only = True # cancel the rest
                 if not first_only:
                     N = self.target_N(pb)
                     i = 0
@@ -642,18 +681,25 @@ class KsProjectProbe(Thread):
                                     break
                             sys.stdout.write("$")
                             sys.stdout.flush()
+                            #check (whether or not continuing...)
+                            if self.continue_:
+                                if filter.analyze(pb.get_page_source()):
+                                    terminate = True
+                                    break
                         if terminate:
                             break
                         i += 1                    
                     sys.stdout.write("OK\n")
                     sys.stdout.flush()
-                #TODO -> pb.get_page_source()
+                
+                fname = "%s_%s_page_source.html" % (start_tstamp,identifier)
+                pb.page_source_save(fname,remove_js=True) #for testing...
                 del pb # terminate the session
                 sys.stdout.write("\nWork complete\n")
                 sys.stdout.write("At %s\n\n"%time.asctime(time.localtime()))
                 sys.stdout.flush()
             except Queue.Empty:
-                sys.stdout.write(".")
+                sys.stdout.write("*")
                 sys.stdout.flush()
     def factory_kickstarter(self,url):
         pb = PB(noimage = True)
@@ -695,15 +741,5 @@ class KsProjectProbe(Thread):
                 sys.stdout.write(" OK\n")
         pb.page_source_save(foutput)
         del pb
-def save_image_to_file(image_data,fname):
-    """
->>> for i,k in enumerate(kpa.images):
-    fname = "d:/%d.jpg"%i
-    KS.save_image_to_file(k,fname)
-    
-    """
-    if fname.endswith('.jpg'):
-        fname = "%s.jpg"%fname
-    i = Image.open(StringIO(image_data))
-    i.save(fname)
-# PROGRAM END
+
+# PROGRAM END ===========

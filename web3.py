@@ -220,18 +220,22 @@ select.deselect_all()
     def xpath_elements(self,xpath_pattern):
         return self.driver.find_elements_by_xpath(xpath_pattern)
 
-    def page_source_save(self,file_location):
+    def page_source_save(self,file_location,remove_js = False):
         if file_location == None or len(file_location) == 0:
             print "Input proper file_location"
             return
         import codecs
         f = codecs.open(file_location,'w','utf-8')
-        f.write(self.driver.page_source)
+        page = self.get_page_source(remove_js = remove_js)
+        f.write(page)
         f.close()
         return "page source: %s" % file_location
 
-    def get_page_source(self):
-        return self.driver.page_source
+    def get_page_source(self,remove_js=False):
+        page = self.driver.page_source
+        if remove_js:
+            page = re.sub(r'<script.*?/script>','',page)
+        return page
 
     def execute_javascript(self,script):
         return self.driver.execute_script(script)
