@@ -15,8 +15,9 @@ import Queue,re
 # -- Web, Imaging --
 from PIL import Image
 from StringIO import StringIO
+from hsaudiotag import mp4
 import requests #Apache requests
-import os, glob, shutil
+import os, glob, shutil, cPickle
 # PROGRAM STARTS ===========
 
 # global functions
@@ -34,6 +35,16 @@ def save_image_to_file(image_data,fname):
         fname = "%s.jpg"%fname
     i = Image.open(StringIO(image_data))
     i.save(fname)
+def get_video_duration(url,buff=2000):
+    r = requests.get(url,stream=True)
+    a = r.raw.read(buff)
+    b = StringIO()
+    b.write(a)
+    c = mp4.File(b)
+    duration = c.duration
+    b.close()
+    r.close()
+    return duration
 
 # classes
 class KICKSTARTER:
@@ -318,6 +329,9 @@ class KickstarterPageAnalyzer:
         self.full_description = " "
         self.risks = " "
         self.backers = []
+        self.image_fnames = []
+        self.video_fname = ""
+        self.video_length = 0
     def terminate(self):
         self.pb.close()
         del self.pb
@@ -391,44 +405,6 @@ class KickstarterPageAnalyzer:
             if not self.quietly:
                 sys.stdout.write("$")
                 sys.stdout.flush()
-            #while 1:
-                #p = pb.get_page_source()
-                #s = BS(p,'html.parser')
-                #current_rows = s.select("div.NS_backers__backing_row")
-                #if len(current_rows) == 0:
-                    #break
-                #else:
-                    #no_backers = False
-                ## AJAX
-                
-                #last_backer_cursor_now = current_rows[-1]['data-cursor']
-                #if last_backer_cursor != last_backer_cursor_now:
-                    #last_backer_cursor = last_backer_cursor_now
-                    #if pb.scroll_down():
-                        #if not self.quietly:
-                            #sys.stdout.write("^")
-                            #sys.stdout.flush()
-                        #wait_tolerance = 2
-                        #politeness = 0.5
-                        #if pb.check_scroll_complete_ajax():
-                            #break
-                        #while pb.check_scroll_complete_ajax():
-                            #time.sleep(1)
-                            #if not self.quietly:
-                                #sys.stdout.write("*")
-                                #sys.stdout.flush()
-                            #if wait_tolerance < 0:
-                                #break
-                        #if not self.quietly:
-                            #sys.stdout.write("$")
-                            #sys.stdout.flush()
-                    #else:
-                        #break
-                #else:
-                    #if not self.quietly:
-                        #sys.stdout.write("\n")
-                        #sys.stdout.flush()
-                    #break
             if not no_backers:
                 p = pb.get_page_source()
                 soup = BS(p,'html.parser')
@@ -471,7 +447,10 @@ class KickstarterPageAnalyzer:
         self.projects_reward_result = self.analyze_project_reward(frame)
         # collect images
         frame = soup.select("img.fit")
-        self.images = self.analyze_images(frame)
+        self.images, self.image_fnames = self.analyze_images(frame)
+        # video
+        frame = soup.select("video.has_webm")
+        self.video_length, self.video_fname = self.analyze_video(frame)
         # collect add_data
         frame = soup.select(".tiny_type")
         self.condition_desc = self.analyze_condition(frame)
@@ -498,6 +477,7 @@ class KickstarterPageAnalyzer:
         return rv
     def analyze_images(self,frame):
         rv = []
+        rv2 = []
         if len(frame) > 0:
             for imgf in frame:
                 src = imgf['src']
@@ -505,8 +485,23 @@ class KickstarterPageAnalyzer:
                 r = requests.get(src)
                 if r.status_code == 200:
                     rv.append(r.content)
+                    rv2.append(src)
                 del r
         return rv
+    def analyze_video(self,frame):
+        rv = 0 #seconds
+        v_url_first = "no_video"
+        if len(frame) > 0:
+            sources = frame[0].select("source")
+            if len(sources) > 0:
+                for source in sources:
+                    v_url = source['src']
+                    if v_url.endswith(".mp4"):
+                        v_url_first = v_url
+                        break
+                if len(v_url_first) > 0:
+                    rv = get_video_duration(v_url_first)
+        return rv,v_url_first
     def analyze_stat(self,soup):
         frame = soup.select("div#stats") #move
         if len(frame) > 0:
@@ -723,6 +718,7 @@ class KsProjectProbe(Thread):
                 screen.gotoXY(25,self.loc_id)
                 screen.cprint(13,0,"Complete at %s%s"%(time.asctime(time.localtime())," "*30))
                 sys.stdout.flush()
+                self.url_queue.task_done()
             except Queue.Empty:
                 self.screen.gotoXY(0,self.loc_id)
                 self.screen.cprint(12,0," "*12)
@@ -829,12 +825,57 @@ class ksProjectPageAnalyzer(Thread):
         sys.stdout.flush()
     
 class KsPageAnalyzerWrapper(Thread):
-    def __init__(self,inque):
+    def __init__(self,inque,sqlite_db):
         Thread.__init__(self)
         self.inque = inque
         self.running = True
+        self.kpa = KickstarterPageAnalyzer() #default analyzer
+        self.sqlite_db = sqlite_db
     def stop(itself):
         self.running = False
     def run(self):
-        pass ##TODO
+        inque = self.inque
+        kpa = self.kpa
+        while self.running:
+            try:
+                url = inque.get(block = True, timeout = 10)
+                kpa.read(url)
+                kpa.analyze()
+                identifier = self.url.replace("https://www.kickstarter.com/projects/","").replace("?ref=discovery","")
+                recording_date = time_stamp()[:10].replace("_","/")
+                #database
+                con = sqlite3.connect(self.sqlite_db)
+                cur = con.cursor()
+                sql = """INSERT INTO project (recording_date,
+                        identifier,title,founder,url,condition_desc,full_description,
+                        risks,video_fname,video_length
+                        number_of_backers,goal,percent_raised,amount_pledged,currency,duration,end_time,hours_remaining,facebook_count,minimum_pledge,
+                        projects_reward_result,images,image_fnames,backers,
+                        page_compressed);
+                    """
+                input_data = []
+                #
+                input_data.append(recording_date)
+                input_data.append(identifier)
+                input_data.append(kpa.founder)
+                input_data.append(kpa.url)
+                input_data.append(kpa.condition_desc)
+                input_data.append(kpa.full_description)
+                input_data.append(kpa.risks)
+                input_data.append(kpa.video_fname)
+                input_data.append(kpa.video_length)
+                input_data.append(kpa.stat_result[0])
+                input_data.append(kpa.stat_result[1])
+                input_data.append(kpa.stat_result[2])
+                input_data.append(kpa.stat_result[3])
+                input_data.append(kpa.stat_result[4])
+                input_data.append(kpa.stat_result[5])
+                input_data.append(kpa.stat_result[6])
+                input_data.append(kpa.stat_result[7])
+                input_data.append(kpa.stat_result[8])
+                input_data.append(kpa.stat_result[9])
+                input_data.append(sqlite3.Binary(cPickle.dumps(kpa.projects_reward_result,cPickle.HIGHEST_PROTOCOL)))
+                #TODO
+            except Queue.Empty:
+                pass
 # PROGRAM END ===========
