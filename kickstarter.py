@@ -155,6 +155,7 @@ class KickstarterCard:
         self.funded_text = " "
         self.pledged_text = " "
         self.days_to_go_text = " "
+        self.on_going = "0"
     def __str__(self):
         rv = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (
             self.collection_id,
@@ -169,6 +170,7 @@ class KickstarterCard:
         return rv
     def line(self):
         return [self.collection_id,
+            self.on_going,
             self.title_text.encode('utf-8'),
             self.title_url.encode('utf-8'),
             self.author_text.encode('utf-8'),
@@ -198,7 +200,15 @@ class KickstarterProjectFilter:
                             found_completed = True
                             break
         return found_completed
-
+    def only_on_going(self,card):
+        rv = "1" # means, yes on going
+        stat = card.select(KICKSTARTER.CSS_BOTTOM)
+        if len(stat) > 0:
+            text_in = stat[0].text.lower()
+            compiled_re = re.findall(r'successful',text_in)
+            if len(compiled_re) > 0:
+                rv = "0"
+        return rv
 class KickstarterProjectAnalyzer:
     def __init__(self,file_name):
         self.cards = []
@@ -218,6 +228,7 @@ class KickstarterProjectAnalyzer:
     def execute(self,collection_id):
         assert self.assert_card, "No data!"
         append_result = self.results.append
+        kpf = KickstarterProjectFilter()
         for card in self.cards:
             kickstarter_card = KickstarterCard(collection_id)
             kickstarter_card.title_text,kickstarter_card.title_url = self.get_title(card)
@@ -225,6 +236,7 @@ class KickstarterProjectAnalyzer:
             kickstarter_card.desc_text = self.get_desc(card)
             kickstarter_card.location_text = self.get_location_name(card)
             kickstarter_card.funded_text,kickstarter_card.pledged_text,kickstarter_card.days_to_go_text = self.get_stat(card)
+            kickstarter_card.on_going = kpf.only_on_going(card)
             append_result(kickstarter_card)
     def export_result_tsv(self,file_name):
         f = open(file_name,'wb')
@@ -745,9 +757,10 @@ class ksProjectPageAnalyzer(Thread):
     """
 |  listen
     """
-    def __init__(self,listener_dir,speaker_dir,reserver_dir,listen_duration=60):
+    def __init__(self,ongoing_dir,listener_dir,speaker_dir,reserver_dir,listen_duration=60):
         Thread.__init__(self)
         self.running = True
+        self.ongoing_dir = ongoing_dir #ongoing_data_now
         self.listener_dir = listener_dir #input
         self.speaker_dir = speaker_dir #analysis result
         self.reserver_dir = reserver_dir #move completed ones
@@ -756,6 +769,8 @@ class ksProjectPageAnalyzer(Thread):
             os.mkdir(speaker_dir)
         if not os.path.exists(reserver_dir):
             os.mkdir(reserver_dir)
+        if not os.path.exists(self.ongoing_dir):
+            os.mkdir(self.ongoing_dir)        
         sys.stdout.write("PROJECT PAGE ANALYZER STARTS...\n")
         sys.stdout.write("\r...WAITING...")
         sys.stdout.flush()
@@ -768,6 +783,19 @@ class ksProjectPageAnalyzer(Thread):
                 collection_id = time_stamp()[:10] #year_month_day
                 #read file list
                 data_files = glob.glob("%s/*.*"%self.listener_dir)
+                #current_project_inventory = glob.glob("%s/*.inv"%self.ongoing_dir)
+                #for cpi in current_project_inventory:
+                    #os.remove(cpi)
+                out_dir = "%s/%s"%(self.speaker_dir,collection_id)
+                if not os.path.exists(out_dir):
+                    os.mkdir(out_dir)
+                res_dir = "%s/%s"%(self.reserver_dir,collection_id)
+                if not os.path.exists(res_dir):
+                    os.mkdir(res_dir)
+                current_proj_inv_dir = "%s/%s"%(self.ongoing_dir,collection_id)
+                if not os.path.exists(current_proj_inv_dir):
+                    os.mkdir(current_proj_inv_dir)
+                #working...
                 for data_file in data_files:
                     base_file_name = os.path.basename(data_file)
                     remove_int = len("...PROCESSING: %s"%(base_file_name,))
@@ -775,18 +803,23 @@ class ksProjectPageAnalyzer(Thread):
                     sys.stdout.flush()
                     kpa = KickstarterProjectAnalyzer(data_file)
                     kpa.execute(collection_id)
-                    out_dir = "%s/%s"%(self.speaker_dir,collection_id)
-                    if not os.path.exists(out_dir):
-                        os.mkdir(out_dir)
                     out_fname = "%s/%s.txt" % (out_dir,base_file_name)
                     kpa.export_result_tsv(out_fname)
-                    res_dir = "%s/%s"%(self.reserver_dir,collection_id)
-                    if not os.path.exists(res_dir):
-                        os.mkdir(res_dir)
                     res_fname = "%s/%s"%(res_dir,base_file_name)
                     shutil.move(data_file,res_fname)
                     sys.stdout.write("\r%s"%(" "*remove_int,))
                     sys.stdout.flush()
+                    #list up
+                    f_inv = open("%s/%s.inv"%(self.ongoing_dir,base_file_name),'wb')
+                    f_inv_writer = csv.writer(f_inv,delimiter="\t",lineterminator="\n")
+                    for kickstarter_card in kpa.results:
+                        if kickstarter_card.on_going == "1":
+                            f_inv_writer.writerow([kickstarter_card.title_url])
+                    f_inv.close()
+                    #list up
+                    shutil.copyfile("%s/%s.inv"%(self.ongoing_dir,base_file_name),"%s/%s.inv"%(current_proj_inv_dir,base_file_name))
+                    #make backup
+                
                 sys.stdout.write("\r...WAITING...")
                 sys.stdout.flush()
                 time.sleep(self.listen_duration)
