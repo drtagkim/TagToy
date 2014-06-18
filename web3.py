@@ -99,7 +99,8 @@ You do not have to input 'url' here. Input URL address when you call read() func
         self.timeout = timeout
         self.encoding = ""
         self.headers = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
-                         'connection' : 'close' }
+                         'connection' : 'close',
+                         'charset' : 'utf-8'}
         self.loud = loud
         self.text = ''
         self.soup = None
