@@ -827,4 +827,14 @@ class ksProjectPageAnalyzer(Thread):
                 break
         sys.stdout.write("\nTHANK YOU.\n")
         sys.stdout.flush()
+    
+class KsPageAnalyzerWrapper(Thread):
+    def __init__(self,inque):
+        Thread.__init__(self)
+        self.inque = inque
+        self.running = True
+    def stop(itself):
+        self.running = False
+    def run(self):
+        pass ##TODO
 # PROGRAM END ===========
