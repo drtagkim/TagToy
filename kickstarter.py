@@ -692,7 +692,9 @@ class KsProjectProbe(Thread):
                     sys.stdout.write("OK\n")
                     sys.stdout.flush()
                 
-                fname = "%s_%s_page_source.html" % (start_tstamp,identifier)
+                fname = "%s%s_%s_page_source.html" % (self.repository,
+                                                      start_tstamp,
+                                                      identifier)
                 pb.page_source_save(fname,remove_js=True) #for testing...
                 del pb # terminate the session
                 sys.stdout.write("\nWork complete\n")
@@ -723,23 +725,5 @@ class KsProjectProbe(Thread):
         target_n = int(math.ceil(counter_n / float(20) - 1))
         # COUNTER <= 20 * (N + 1)
         return target_n
-    def execute(self,foutput):
-        assert len(self.url) > 0, "Error"
-        pb, first_only =  self.factory_kickstarter(self.url)
-        if not first_only:
-            N = self.target_N(pb)
-            for i in xrange(N):
-                wait_tolerance = 15
-                pb.scroll_down()
-                sys.stdout.write("page: %03d" % (i,))
-                while pb.check_scroll_complete_ajax() and i < N:
-                    time.sleep(1)
-                    sys.stdout.write(".")
-                    wait_tolerance -= 1
-                    if wait_tolerance < 0:
-                        break
-                sys.stdout.write(" OK\n")
-        pb.page_source_save(foutput)
-        del pb
 
 # PROGRAM END ===========
