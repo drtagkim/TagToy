@@ -632,13 +632,16 @@ class KickstarterPageAnalyzer:
             
 
 class KsProjectProbe(Thread):
-    def __init__(self,url_queue,continue_=False):
+    def __init__(self,url_queue,screen,loc_id,continue_=False):
         Thread.__init__(self)
         #self.url = url
         self.url_queue = url_queue
         self.running = True
         self.repository = "" # file repository
         self.continue_ = continue_
+        self.screen = screen
+        self.loc_id = loc_id
+        
         #self.bench_mark = bench_mark #bench mark card (to decide a stopping point)
     #def add(self,url):
         #self.url_queue.put(url)
@@ -646,40 +649,47 @@ class KsProjectProbe(Thread):
         self.running = False
     def run(self):
         filter = KickstarterProjectFilter()
+        screen = self.screen
         while self.running:
             try:
                 url,identifier = self.url_queue.get(block=True,timeout=10) #wait for 10 second
-                sys.stdout.write("\nData received: %s\n" % url)
-                sys.stdout.write("At %s\n" % time.asctime(time.localtime()))
+                screen.gotoXY(7,self.loc_id)
+                screen.cprint(15,0,"ACTIVE  ")
                 sys.stdout.flush()
+                #sys.stdout.flush()
                 start_tstamp = time_stamp()
                 assert len(url) > 0, "Error"
+                screen.gotoXY(25,self.loc_id)
+                screen.cprint(13,0,"Processing at %s%s"%(time.asctime(time.localtime())," "*20))
+                sys.stdout.flush()
                 pb, first_only =  self.factory_kickstarter(url)
                 if self.continue_:
                     if filter.analyze(pb.get_page_source()):
                         first_only = True # cancel the rest
                 if not first_only:
+                    scroll_line = 0
                     N = self.target_N(pb)
                     i = 0
                     terminate = False
                     while 1:
                         politeness = 0
                         if pb.scroll_down():
-                            sys.stdout.write("^")
+                            scroll_line += 1
+                            screen.gotoXY(0,self.loc_id)
+                            screen.cprint(10,0,"%04d"%scroll_line)
                             sys.stdout.flush()
                             while 1:
                                 politeness += 1
                                 if pb.check_scroll_complete_ajax():
                                     if i < N:
                                         time.sleep(politeness)
-                                        sys.stdout.write("*")
-                                        sys.stdout.flush()
                                     else:
                                         terminate = True
                                         break
                                 else:
                                     break
-                            sys.stdout.write("$")
+                            screen.gotoXY(5,self.loc_id)
+                            screen.cprint(9,0," ")
                             sys.stdout.flush()
                             #check (whether or not continuing...)
                             if self.continue_:
@@ -688,8 +698,9 @@ class KsProjectProbe(Thread):
                                     break
                         if terminate:
                             break
-                        i += 1                    
-                    sys.stdout.write("OK\n")
+                        i += 1
+                    screen.gotoXY(0,self.loc_id)
+                    screen.cprint(12,0,"OK   ")
                     sys.stdout.flush()
                 
                 fname = "%s%s_%s_page_source.html" % (self.repository,
@@ -697,11 +708,15 @@ class KsProjectProbe(Thread):
                                                       identifier)
                 pb.page_source_save(fname,remove_js=True) #for testing...
                 del pb # terminate the session
-                sys.stdout.write("\nWork complete\n")
-                sys.stdout.write("At %s\n\n"%time.asctime(time.localtime()))
+                screen.gotoXY(25,self.loc_id)
+                screen.cprint(13,0,"Complete at %s%s"%(time.asctime(time.localtime())," "*30))
                 sys.stdout.flush()
             except Queue.Empty:
-                sys.stdout.write("*")
+                self.screen.gotoXY(0,self.loc_id)
+                self.screen.cprint(12,0," "*12)
+                screen.gotoXY(7,self.loc_id)
+                screen.cprint(15,0,"INACTIVE")
+                sys.stdout.flush()                
                 sys.stdout.flush()
     def factory_kickstarter(self,url):
         pb = PB(noimage = True)
