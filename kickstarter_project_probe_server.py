@@ -19,16 +19,16 @@ def create_repository():
         os.mkdir(REPOSITORY_NAME)
 def display_hello():
     
-    screen.gotoXY(0,0)
-    screen.cprint(15,0,"= = = = = = = = = = = = = = = = = = = = = = = = = ")
-    sys.stdout.flush()
     screen.gotoXY(0,1)
-    screen.cprint(10,0,"         KICKSTARTER PROJECT PAGE COLLECTOR")
+    screen.cprint(15,0,"= = = = = = = = = = = = = = = = = = = = = = = = = ")
     sys.stdout.flush()
     screen.gotoXY(0,2)
-    screen.cprint(15,0,"= = = = = = = = = = = = = = = = = = = = = = = = = ")
+    screen.cprint(10,0,"         KICKSTARTER PROJECT PAGE COLLECTOR")
     sys.stdout.flush()
     screen.gotoXY(0,3)
+    screen.cprint(15,0,"= = = = = = = = = = = = = = = = = = = = = = = = = ")
+    sys.stdout.flush()
+    screen.gotoXY(0,4)
     screen.cprint(3,0,"Server Starts")
     sys.stdout.flush()
 if __name__ == "__main__":
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     inque = Queue.Queue()
     # make four...
     for i in range(4):
-        probe = kickstarter.KsProjectProbe(inque,screen,loc_id = (i+4),continue_=CONTINUE_)
+        probe = kickstarter.KsProjectProbe(inque,screen,loc_id = (i+5),continue_=CONTINUE_)
         probe.repository = "%s/"%(REPOSITORY_NAME,)
         probe.setDaemon(True)
         probes.append(probe)
