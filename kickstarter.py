@@ -5,6 +5,7 @@ Contact: masan.korea@gmail.com
 # -- Web --
 from web3 import PhantomBrowser as PB
 from web3 import WebReader2 as WR
+from web3 import list_to_queue, queue_to_list
 from bs4 import BeautifulSoup as BS
 # -- System --
 import time,sys,re,math,re,csv,zlib
@@ -17,7 +18,8 @@ from PIL import Image
 from StringIO import StringIO
 from hsaudiotag import mp4
 import requests #Apache requests
-import os, glob, shutil, cPickle
+import os, glob, shutil, cPickle, sqlite3, zlib
+import numpy as NP
 # PROGRAM STARTS ===========
 
 # global functions
@@ -45,7 +47,45 @@ def get_video_duration(url,buff=2000):
     b.close()
     r.close()
     return duration
-
+def filter_number(money):
+    money_exps = re.findall(r'([0-9,]+)',money)
+    rv = 0.0
+    if len(money_exps) > 0:
+        money_exp = money_exps[0].replace(",","")
+        rv = float(money_exp)
+    return rv
+class ImageDownloader(Thread):
+    def __init__(self,inque,outque,quietly = True,has_image = True):
+        Thread.__init__(self)
+        self.inque = inque
+        self.outque = outque
+        self.running = True
+        self.quietly = quietly
+        self.has_image = has_image
+    def stop(self):
+        self.running = False
+    def run(self):
+        inque = self.inque
+        outque = self.outque
+        while self.running:
+            try:
+                src = inque.get(block=True,timeout=1)
+                if self.has_image:
+                    r = requests.get(src)
+                    if r.status_code == 200:
+                        c = r.content
+                        outque.put([c,src])
+                    if not self.quietly:
+                        sys.stdout.write("i")
+                        sys.stdout.flush()
+                else:
+                    if not self.quietly:
+                        sys.stdout.write("o")
+                        sys.stdout.flush()
+                    outque.put(['',src])
+                inque.task_done()
+            except Queue.Empty:
+                pass
 # classes
 class KICKSTARTER:
     """
@@ -313,9 +353,10 @@ class KickstarterPageAnalyzer:
 |  >>> kpa.analyze()
 
     """
-    def __init__(self,quietly=True):
+    def __init__(self,quietly=True,has_image=True):
         self.pb = None #phantom browser
         self.quietly = quietly
+        self.has_image = has_image
         #data clear
         self.clear()
     def clear(self):
@@ -332,9 +373,10 @@ class KickstarterPageAnalyzer:
         self.image_fnames = []
         self.video_fname = ""
         self.video_length = 0
+        self.page_compressed = None
     def terminate(self):
         self.pb.close()
-        del self.pb
+        self.pb == None
     def read(self,url):
         if not self.quietly:
             sys.stdout.write("Get set...")
@@ -435,7 +477,9 @@ class KickstarterPageAnalyzer:
         #title
         title_ele = soup.select('div.title')
         if len(title_ele) > 0:
-            self.title = title_ele[0].text.strip()
+            title = title_ele[0].text.strip()
+            title = re.sub(r"(\n)+"," ",title)
+            self.title = title
         #founder
         founder_ele = re.findall(r"/projects/(.+)/",self.url)
         if len(founder_ele) > 0:
@@ -478,16 +522,26 @@ class KickstarterPageAnalyzer:
     def analyze_images(self,frame):
         rv = []
         rv2 = []
+        inque = Queue.Queue()
+        outque = Queue.Queue()
         if len(frame) > 0:
             for imgf in frame:
                 src = imgf['src']
                 src = re.sub(r"\?.*$","",src)
-                r = requests.get(src)
-                if r.status_code == 200:
-                    rv.append(r.content)
-                    rv2.append(src)
-                del r
-        return rv
+                inque.put(src)
+        tasks = []
+        for i in range(inque.qsize()):
+            imageD = ImageDownloader(inque,outque,self.quietly,self.has_image)
+            tasks.append(imageD)
+            imageD.start()
+        inque.join()
+        for task in tasks:
+            task.stop()
+        outlist = queue_to_list(outque)
+        for ol in outlist:
+            rv.append(ol[0])
+            rv2.append(ol[1])
+        return rv,rv2
     def analyze_video(self,frame):
         rv = 0 #seconds
         v_url_first = "no_video"
@@ -565,21 +619,31 @@ class KickstarterPageAnalyzer:
             end_time = ""
             hours_remaining = 0.0
         #Facebook count
-        frame = soup.select("li.facebook.mr2 .count")
-        if len(frame) > 0:
-            waiting = 1
-            while 1:
+        temp_soup_facebook = BS(self.pb.get_page_source(),'html.parser')
+        frame = temp_soup_facebook.select("li.facebook.mr2 .count")
+        waiting = 1
+        while 1:
+            if len(frame) > 0:
                 try:
                     facebook_count = int(frame[0].text) #error prone
                     break
                 except:
-                    time.sleep(1)
                     if not self.quietly:
-                        sys.stdout.write("\r[facebook waiting...%d]\n"%waiting)
+                        sys.stdout.write("[facebook waiting...%d]\n"%waiting)
                         sys.stdout.flush()
-                        waiting += 1
-        else:
-            facebook_count = 0
+                    time.sleep(waiting)
+                    waiting += 1
+                    temp_soup_facebook = BS(self.pb.get_page_source(),'html.parser')
+                    frame = temp_soup_facebook.select("li.facebook.mr2 .count")
+            else:
+                facebook_count = 0
+                break
+            if waiting >= 10:
+                if not self.quietly:
+                    sys.stdout.write(" [facebook error] ")
+                    sys.stdout.flush()
+                facebook_count = -1 #means, error
+                break
         #minimum pledge
         frame = soup.select("#button-back-this-proj .money")
         if len(frame) > 0:
@@ -599,15 +663,15 @@ class KickstarterPageAnalyzer:
                 #money
                 money_f = card.select(".money")
                 if len(money_f) > 0:
-                    money = money_f[0].text.strip()
+                    money = filter_number(money_f[0].text.strip())
                 else:
-                    money = ""
+                    money = 0.0
                 #backers
                 backers_f = card.select(".num-backers")
                 if len(backers_f) > 0:
-                    num_backers = backers_f[0].text.strip()
+                    num_backers = filter_number(backers_f[0].text.strip())
                 else:
-                    num_backers = ""
+                    num_backers = 0.0
                 #description
                 desc_f = card.select(".desc")
                 if len(desc_f) > 0:
@@ -825,38 +889,95 @@ class ksProjectPageAnalyzer(Thread):
         sys.stdout.flush()
     
 class KsPageAnalyzerWrapper(Thread):
-    def __init__(self,inque,sqlite_db):
+    def __init__(self,inque,sqlite_db,quietly=True,has_image=True):
         Thread.__init__(self)
         self.inque = inque
         self.running = True
-        self.kpa = KickstarterPageAnalyzer() #default analyzer
+        self.kpa = KickstarterPageAnalyzer(quietly=quietly,has_image=has_image) #default analyzer
         self.sqlite_db = sqlite_db
-    def stop(itself):
+        self.quietly = quietly #for later use or remove it...
+        self.has_image = has_image #for later use or remove it...
+    def stop(self):
         self.running = False
+    def stat_reward(self,projects_reward_result):
+        money_list = []
+        num_backers_list = []
+        variety_of_offer = len(projects_reward_result)
+        for reward in projects_reward_result:
+            money_list.append(reward[0])
+            num_backers_list.append(reward[1])
+        money_np = NP.array(money_list)
+        if len(money_np) > 0:
+            min_money = float(NP.min(money_np))
+            max_money = float(NP.max(money_np))
+            avg_money = float(NP.mean(money_np))
+            std_money = float(NP.std(money_np))
+            total_money = float(NP.sum(money_np))            
+        else:
+            min_money = 0.0
+            max_money = 0.0
+            avg_money = 0.0
+            std_money = 0.0
+            total_money = 0.0
+        num_backers_np = NP.array(num_backers_list)
+        if len(num_backers_np) > 0:
+            total_num_backer = float(NP.sum(num_backers_np))
+            min_num_backer = float(NP.min(num_backers_np))
+            max_num_backer = float(NP.max(num_backers_np))
+            avg_num_backer = float(NP.mean(num_backers_np))
+            std_num_backer = float(NP.std(num_backers_np))
+        else:
+            total_num_backer = 0.0
+            min_num_backer = 0.0
+            max_num_backer = 0.0
+            avg_num_backer = 0.0
+            std_num_backer = 0.0
+        return (variety_of_offer,
+                avg_money,std_money,min_money,max_money,total_money,
+                avg_num_backer,std_num_backer,min_num_backer,max_num_backer,total_num_backer)
+    
     def run(self):
         inque = self.inque
         kpa = self.kpa
+        url = ""
         while self.running:
             try:
                 url = inque.get(block = True, timeout = 10)
-                kpa.read(url)
-                kpa.analyze()
-                identifier = self.url.replace("https://www.kickstarter.com/projects/","").replace("?ref=discovery","")
+                self.kpa.read(url)
+                self.kpa.analyze()
+                identifier = url.replace("https://www.kickstarter.com/projects/","").replace("?ref=discovery","")
                 recording_date = time_stamp()[:10].replace("_","/")
                 #database
                 con = sqlite3.connect(self.sqlite_db)
                 cur = con.cursor()
-                sql = """INSERT INTO project (recording_date,
-                        identifier,title,founder,url,condition_desc,full_description,
-                        risks,video_fname,video_length
-                        number_of_backers,goal,percent_raised,amount_pledged,currency,duration,end_time,hours_remaining,facebook_count,minimum_pledge,
-                        projects_reward_result,images,image_fnames,backers,
-                        page_compressed);
-                    """
+                if self.has_image:
+                    sql = """INSERT INTO project (recording_date,
+                            identifier,title,founder,url,condition_desc,full_description,
+                            risks,video_fname,video_length,
+                            number_of_backers,goal,percent_raised,amount_pledged,currency,duration,end_time,hours_remaining,facebook_count,minimum_pledge,
+                            reward_variety_of_offer,reward_avg_money,reward_std_money,reward_min_money,reward_max_money,reward_total_money,
+                            reward_avg_num_backer,reward_std_num_backer,reward_min_num_backer,reward_max_num_backer,reward_total_num_backer,
+                            projects_reward_result,images,image_fnames,backers,
+                            page_compressed
+                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+                        """
+                else:
+                    sql = """INSERT INTO project (recording_date,
+                            identifier,title,founder,url,condition_desc,full_description,
+                            risks,video_fname,video_length,
+                            number_of_backers,goal,percent_raised,amount_pledged,currency,duration,end_time,hours_remaining,facebook_count,minimum_pledge,
+                            reward_variety_of_offer,reward_avg_money,reward_std_money,reward_min_money,reward_max_money,reward_total_money,
+                            reward_avg_num_backer,reward_std_num_backer,reward_min_num_backer,reward_max_num_backer,reward_total_num_backer,
+                            projects_reward_result,image_fnames,backers,
+                            page_compressed
+                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+                        """                    
                 input_data = []
+                stat_reward_results = self.stat_reward(kpa.projects_reward_result)
                 #
                 input_data.append(recording_date)
                 input_data.append(identifier)
+                input_data.append(kpa.title)
                 input_data.append(kpa.founder)
                 input_data.append(kpa.url)
                 input_data.append(kpa.condition_desc)
@@ -874,8 +995,29 @@ class KsPageAnalyzerWrapper(Thread):
                 input_data.append(kpa.stat_result[7])
                 input_data.append(kpa.stat_result[8])
                 input_data.append(kpa.stat_result[9])
+                input_data.append(stat_reward_results[0])
+                input_data.append(stat_reward_results[1])
+                input_data.append(stat_reward_results[2])
+                input_data.append(stat_reward_results[3])
+                input_data.append(stat_reward_results[4])
+                input_data.append(stat_reward_results[5])
+                input_data.append(stat_reward_results[6])
+                input_data.append(stat_reward_results[7])
+                input_data.append(stat_reward_results[8])
+                input_data.append(stat_reward_results[9])
+                input_data.append(stat_reward_results[10])
                 input_data.append(sqlite3.Binary(cPickle.dumps(kpa.projects_reward_result,cPickle.HIGHEST_PROTOCOL)))
-                #TODO
+                if self.has_image:
+                    input_data.append(sqlite3.Binary(cPickle.dumps(kpa.images,cPickle.HIGHEST_PROTOCOL)))
+                input_data.append(sqlite3.Binary(cPickle.dumps(kpa.image_fnames,cPickle.HIGHEST_PROTOCOL)))
+                input_data.append(sqlite3.Binary(cPickle.dumps(kpa.backers,cPickle.HIGHEST_PROTOCOL)))
+                input_data.append(sqlite3.Binary(cPickle.dumps(kpa.page_compressed,cPickle.HIGHEST_PROTOCOL)))
+                cur.execute(sql,input_data)
+                con.commit()
+                cur.close()
+                con.close()
+                kpa.clear() #clear out buffer
+                inque.task_done()
             except Queue.Empty:
-                pass
+                pass #waiting for the next queue
 # PROGRAM END ===========

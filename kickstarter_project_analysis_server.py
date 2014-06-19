@@ -1,7 +1,7 @@
 '''
 Author: DrTagKim
 '''
-import socket,sys,os
+import sys,os
 import kickstarter
 import kickstarter_server_port as KSP
 import kickstarter_project_probe_server as KPAS
