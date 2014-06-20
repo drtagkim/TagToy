@@ -116,7 +116,245 @@ class KICKSTARTER:
     CSS_STAT = "ul.project-stats"
     CSS_BOTTOM = "div.absolute-bottom"
     ATT_DUE_DATE = "data-end_time"
+    JSON_PROJECT_TOTAL = "total_hits"
+    JSON_PROJECT_PROJECTS = "projects"
+    #JSON_PROJECT_PROJECTS_BACKER_CNT = "backers_count"
+    #JSON_PROJECT_PROJECTS_DESC= "blurb"
+    #JSON_PROJECT_PROJECTS_CATEGORY = "category"
+    #JSON_PROJECT_PROJECTS_CATEGORY_NAME = "name"
+    #JSON_PROJECT_PROJECTS_CATEGORY_PARENT_ID = "parent_id"
+    #JSON_PROJECT_PROJECTS_CATEGORY_POSITION = "position"
+    
+    JSON_PROJECT_SEED = "seed"
 
+class KickstarterProjectCollectorJson:
+    def __init__(self,category_id,politeness = 60):
+        self.url="https://www.kickstarter.com/discover/advanced"
+        self.category_id = category_id
+        self.rv_static = []
+        self.rv_dynamic = []
+        self.politeness = politeness
+    def read(self,page):
+        parameters = {
+            "category_id":str(self.category_id),
+            "sort":"end_date",
+            "format":"json",
+            "page":str(page)}
+        trial = 10
+        while 1:
+            try:
+                r = requests.get(self.url,params=parameters)
+                break
+            except:
+                time.sleep(self.politeness)
+                trial -= 1
+                if trial < 0:
+                    assert False,"No connection"
+        rv  = r.json()
+        r.close()
+        return rv
+    def scrap(self,full=False):
+        """
+|  Main
+        """
+        politeness = self.politeness
+        rv_static_append = self.rv_static.append
+        rv_dynamic_append = self.rv_dynamic.append
+        page = 1
+        hit = 0
+        hit_temp = 0
+        breaker = False
+        #timestamp doday
+        now_ts = time.localtime()
+        ts_id = "%04d/%02d/%02d"%(now_ts.tm_year,now_ts.tm_mon,now_ts.tm_mday,) 
+        tick = 0
+        while 1:
+            data = self.read(page)
+            if data == "-1":
+                print self.url
+                print "Bad Connection"
+                assert False,""
+            self.total_num = data["total_hits"]
+            projects = data["projects"]
+            if len(projects) <=0:
+                break
+            else:
+                page += 1 #pagination
+            for project in projects:
+                # ABOUT PROJECT
+                project_id = project['id']
+                project_name = project['name']
+                try:
+                    project_slug = project['slug']
+                except KeyError:
+                    project_slug = ""
+                country = project['country']
+                created_at_unix = project['created_at']
+                created_at_str = (datetime.fromtimestamp(created_at_unix)).strftime("%Y-%m-%d %H:%M")
+                project_url = project['urls']['web']['project']
+                desc = re.sub(r"\n\n+"," ",(project['blurb']))
+                photo = project['photo']['1024x768']
+                category_name = project['category']['name']
+                category_id = project['category']['id']
+                try:
+                    category_parent = project['category']['parent_id']
+                except KeyError:
+                    category_parent = -1
+                launched_at_unix = project['launched_at']
+                launched_at_str = (datetime.fromtimestamp(launched_at_unix)).strftime("%Y-%m-%d %H:%M")
+                # ABOUT PERFORMANCE
+                goal = project['goal']
+                currency = project['currency']
+                backers = project['backers_count']
+                pledged = project['pledged']
+                state = project['state'] # u'live'
+                currently = (state == u'live')
+                # ABOUT DEADLINE
+                state_changed_unix = project['state_changed_at']
+                state_changed_str = (datetime.fromtimestamp(state_changed_unix)).strftime("%Y-%m-%d %H:%M")
+                deadline_unix = project['deadline']
+                deadline_str = (datetime.fromtimestamp(deadline_unix)).strftime("%Y-%m-%d %H:%M")
+                # ABOUT CREATOR
+                creator = project['creator']
+                creator_id = creator['id']
+                try:
+                    creator_url_slug = creator['slug']
+                except KeyError:
+                    creator_url_slug = ""
+                creator_name = creator['name']
+                creator_url_api = creator['urls']['api']['user']
+                creator_url_web = creator['urls']['web']['user']
+                # ABOUT NEARBY PROJECTS
+                try:
+                    location = project['location']
+                    location_country = location['country']
+                    location_name = location['displayable_name']
+                    try:
+                        location_slug = location['slug']
+                    except KeyError:
+                        location_slug = ""
+                    try:
+                        location_nearby_api = location['urls']['api']['nearby_projects']
+                        location_nearby_web1 = location['urls']['web']['discover']
+                        location_nearby_web2 = location['urls']['web']['location']
+                    except KeyError:
+                        location_nearby_api = ""
+                        location_nearby_web1 = ""
+                        location_nearby_web2 = ""
+                except KeyError:
+                    location_country =""
+                    location_name = ""
+                    location_slug = ""
+                    location_nearby_api = ""
+                    location_nearby_web1 = ""
+                    location_nearby_web2 = ""
+                #
+                if not full:
+                    if not currently:
+                        breaker = True
+                        break
+                rv_static_append([project_id,project_name,project_slug,country,created_at_unix,created_at_str,
+                        project_url,desc,photo,category_parent,category_name,category_id,launched_at_unix,launched_at_str,
+                        goal,currency,backers,pledged,state,currently,state_changed_unix,
+                        state_changed_str,deadline_unix,deadline_str,creator_id,creator_url_slug,
+                        creator_name,creator_url_api,creator_url_web,location_country,
+                        location_name,location_slug,location_nearby_api,location_nearby_web1,location_nearby_web2,])
+                rv_dynamic_append([ts_id,project_id,backers,pledged,state,currently,
+                                   state_changed_unix,state_changed_str,deadline_unix,deadline_str,
+                                   ])
+                tick += 1
+                sys.stdout.write("\r[%06d/%06d]"%(tick,self.total_num))
+                sys.stdout.flush()                  
+            if breaker:
+                break
+
+            #time.sleep(politeness)
+    def export_sqlite(self,db_name):
+        """
+|  TEST
+        """
+        con = sqlite3.connect(db_name)
+        #create schema
+        sql_create_staic = """
+            CREATE TABLE IF NOT EXISTS project_benchmark (project_id NUMBER,
+                project_name TEXT,
+                project_slug TEXT,
+                country TEXT,
+                created_at_unix NUMBER,
+                created_at_str TEXT,
+                project_url TEXT,
+                desc TEXT,
+                photo TEXT,
+                category_parent NUMBER,
+                category_name TEXT,
+                category_id NUMBER,
+                launched_at_unix NUMBER,
+                launched_at_str TEXT,
+                goal NUMBER,
+                currency NUMBER,
+                backers NUMBER,
+                pledged NUMBER,
+                state TEXT,
+                currently NUMBER,
+                state_changed_unix NUMBER,
+                state_changed_str TEXT,
+                deadline_unix NUMBER,
+                deadline_str TEXT,
+                creator_id NUMBER,
+                creator_url_slug TEXT,
+                creator_name TEXT,
+                creator_url_api TEXT,
+                creator_url_web TEXT,
+                location_country TEXT,
+                location_name TEXT,
+                location_slug TEXT,
+                location_nearby_api TEXT,
+                location_nearby_web1 TEXT,
+                location_nearby_web2 TEXT,
+                CONSTRAINT update_rule UNIQUE(project_id) ON CONFLICT IGNORE);
+        """
+        sql_create_dynamic = """
+            CREATE TABLE IF NOT EXISTS project_history (
+                ts_id TEXT,
+                project_id NUMBER,
+                backers NUMBER,
+                pledged NUMBER,
+                state NUMBER,
+                currently NUMBER,
+                state_changed_unix NUMBER,
+                state_changed_str TEXT,
+                deadline_unix NUMBER,
+                deadline_str TEXT,
+                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE);
+        """
+        sql_insert_static = """
+            INSERT INTO project_benchmark (
+            project_id,project_name,project_slug,country,created_at_unix,created_at_str,
+                        project_url,desc,photo,category_parent,category_name,category_id,launched_at_unix,launched_at_str,
+                        goal,currency,backers,pledged,state,currently,state_changed_unix,
+                        state_changed_str,deadline_unix,deadline_str,creator_id,creator_url_slug,
+                        creator_name,creator_url_api,creator_url_web,location_country,
+                        location_name,location_slug,location_nearby_api,location_nearby_web1,location_nearby_web2
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+        """
+        sql_insert_dynamic = """
+            INSERT INTO project_history (
+                ts_id,project_id,backers,pledged,state,currently,
+                state_changed_unix,state_changed_str,deadline_unix,deadline_str
+            ) VALUES (?,?,?,?,?,?,?,?,?,?);
+        """
+        cur = con.cursor()
+        cur.execute(sql_create_staic)
+        con.commit()
+        cur.execute(sql_create_dynamic)
+        con.commit()
+        cur.executemany(sql_insert_static,self.rv_static)
+        con.commit()
+        cur.executemany(sql_insert_dynamic,self.rv_dynamic)
+        con.commit()
+        cur.close()
+        con.close()
+        
 class KickstarterProjectCollector:
     def __init__(self,url):
         self.url = url
@@ -528,19 +766,24 @@ class KickstarterPageAnalyzer:
             for imgf in frame:
                 src = imgf['src']
                 src = re.sub(r"\?.*$","",src)
-                inque.put(src)
-        tasks = []
-        for i in range(inque.qsize()):
-            imageD = ImageDownloader(inque,outque,self.quietly,self.has_image)
-            tasks.append(imageD)
-            imageD.start()
-        inque.join()
-        for task in tasks:
-            task.stop()
-        outlist = queue_to_list(outque)
-        for ol in outlist:
-            rv.append(ol[0])
-            rv2.append(ol[1])
+                if self.has_image:
+                    inque.put(src)
+                else:
+                    rv.append(src)
+                    rv2.append("")
+        if self.has_image:
+            tasks = []
+            for i in range(inque.qsize()):
+                imageD = ImageDownloader(inque,outque,self.quietly,self.has_image)
+                tasks.append(imageD)
+                imageD.start()
+            inque.join()
+            for task in tasks:
+                task.stop()
+            outlist = queue_to_list(outque)
+            for ol in outlist:
+                rv.append(ol[0])
+                rv2.append(ol[1])
         return rv,rv2
     def analyze_video(self,frame):
         rv = 0 #seconds
@@ -813,6 +1056,13 @@ class KsProjectProbe(Thread):
         # COUNTER <= 20 * (N + 1)
         return target_n
 
+class KsProjectProbeJson(Thread):
+    def __init__(self,url_queue,continue_=False):
+        self.url_queue = url_queue
+        self.running = True
+        self.repository = ""
+        self.continue_ = continue_
+    
 class ksProjectPageAnalyzer(Thread):
     """
 |  listen

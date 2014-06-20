@@ -104,7 +104,7 @@ You do not have to input 'url' here. Input URL address when you call read() func
         self.loud = loud
         self.text = ''
         self.soup = None
-    def read(self,url = None,parameters = None,soup = False, quietly = False):
+    def read(self,url = None,parameters = None,soup = False, quietly = False, json=False):
         """
 If you do not specify a URL address before, input the infomation here.
 
@@ -125,25 +125,28 @@ See also, bs4 (BeautifulSoup).
             self.connection_status = con.status_code
             self.encoding = con.encoding
             if self.connection_status == requests.codes.ok:
-                self.text = con.text
+                if json:
+                    self.text = con.json()
+                else:
+                    self.text = unicode(con.text)
                 if self.loud:
                     print "[INFO] Page is successfully read."
                 if soup:
                     if self.loud:
                         print "[INFO] Beautiful soup parsing completed."
                     self.soup = BS(self.text,'html.parser')
+
             else:
                 if self.loud:
                     print "[ERROR] Connection failure. Check connection_status"
                 self.text = "0" #which means, failed
+            con.close()
 
         except:
             if self.loud:
                 print "[ERROR] Server cannot be found."
             self.text = '-1' #which means, bad connection
-        self.text = unicode(self.text)
-        if not quietly:
-            return self.text
+        return self.text
     def export_html_gz(self,gzip_file):
         """
         Export html text to gz file
@@ -246,10 +249,13 @@ select.deselect_all()
         except WebDriverException:
             pass
     def check_scroll_complete_ajax(self):
-        try:
-            return self.driver.execute_script("return $(document).height() == $(window).height()+$(window).scrollTop();")
-        except WebDriverException:
-            pass
+        """
+|  If bottom, true; otherwise false
+        """
+        #try:
+        return self.driver.execute_script("return $(document).height() <= $(window).height()+$(window).scrollTop();")
+        #except WebDriverException:
+        #    pass
     def scroll_down(self,patient=30):
         script = "window.scrollTo(0, document.body.scrollHeight);"
         self.execute_javascript(script)
