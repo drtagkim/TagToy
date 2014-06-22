@@ -189,14 +189,15 @@ select.deselect_all()
 
 
     """
-    def __init__(self,noimage=False):
+    def __init__(self,noimage=True):
         """
 >>> pb = PhantomBrowser()
         """
         from selenium import webdriver
         if noimage:
             self.driver = webdriver.PhantomJS(service_args=['--load-images=no',
-                                                            '--webdriver-loglevel=NONE'])
+                                                            '--webdriver-loglevel=NONE'
+                                                            ])
             # http://phantomjs.org/api/command-line.html (service_args reference)
         else:
             self.driver = webdriver.PhantomJS(service_args=['--webdriver-loglevel=NONE'])
