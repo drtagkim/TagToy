@@ -4,6 +4,7 @@ import time
 import requests
 import sqlite3
 from datetime import datetime
+
 class KickstarterProjectCollectorJson:
     def __init__(self,category_id,politeness = 60):
         self.url="https://www.kickstarter.com/discover/advanced"
@@ -30,9 +31,11 @@ class KickstarterProjectCollectorJson:
         rv  = r.json()
         r.close()
         return rv
-    def scrap(self,full=False):
+    def scrap(self,full=False,time_lag = -1):
         """
 |  Main
+|  To collect everything, set full as True otherwise False
+|  Set time lag for concurrent monitoring (default: yesterday)
         """
         politeness = self.politeness
         rv_static_append = self.rv_static.append
@@ -44,6 +47,7 @@ class KickstarterProjectCollectorJson:
         #timestamp doday
         now_ts = time.localtime()
         ts_id = "%04d/%02d/%02d"%(now_ts.tm_year,now_ts.tm_mon,now_ts.tm_mday,) 
+        ts_comp = datetime.fromtimestamp(time.mktime(now_ts))
         tick = 0
         while 1:
             data = self.read(page)
@@ -85,12 +89,13 @@ class KickstarterProjectCollectorJson:
                 backers = project['backers_count']
                 pledged = project['pledged']
                 state = project['state'] # u'live'
-                currently = (state == u'live')
                 # ABOUT DEADLINE
                 state_changed_unix = project['state_changed_at']
                 state_changed_str = (datetime.fromtimestamp(state_changed_unix)).strftime("%Y-%m-%d %H:%M")
                 deadline_unix = project['deadline']
                 deadline_str = (datetime.fromtimestamp(deadline_unix)).strftime("%Y-%m-%d %H:%M")
+                deadline_comp = datetime.fromtimestamp(deadline_unix) 
+                currently = ((deadline_comp - ts_comp).days < time_lag ) # including yesterday...
                 # ABOUT CREATOR
                 creator = project['creator']
                 creator_id = creator['id']
@@ -188,7 +193,7 @@ class KickstarterProjectCollectorJson:
                 location_nearby_api TEXT,
                 location_nearby_web1 TEXT,
                 location_nearby_web2 TEXT,
-                CONSTRAINT update_rule UNIQUE(project_id) ON CONFLICT IGNORE);
+                CONSTRAINT update_rule UNIQUE(project_id) ON CONFLICT REPLACE);
         """
         sql_create_dynamic = """
             CREATE TABLE IF NOT EXISTS project_history (
