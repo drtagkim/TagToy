@@ -107,6 +107,8 @@ class KickstarterPageAnalyzer:
         self.backers = []
         self.image_fnames = []
         self.video_fname = ""
+        self.video_has_high = 0
+        self.video_has_base = 0
         self.video_length = 0
         self.video_has = False
         self.page_compressed = None
@@ -217,7 +219,7 @@ class KickstarterPageAnalyzer:
                 
         # video (source file name, length)s
         frame = soup.select("video.has_webm")
-        self.video_fname = "no_video"
+        self.video_fname = "na"
         v_url = ""
         if len(frame) > 0:
             sources = frame[0].select("source")
@@ -226,9 +228,14 @@ class KickstarterPageAnalyzer:
                 for source in sources:
                     v_url = source['src']
                     if v_url.endswith(".mp4"):
-                        self.video_fname = v_url
-                        break
-                if len(v_url) > 0:
+                        if v_url.find('high') > 0:
+                            self.video_has_high = 1
+                            self.video_fname = v_url
+                        else:
+                            self.video_has_base = 1
+                            self.video_fname = v_url # if base exists, replace by it.
+                if self.video_has_high > 0 or self.video_has_base > 0:
+                    url = self.video_fname
                     # video duration
                     r = requests.get(url,stream = True)
                     a = r.raw.read(2000) #2kb buffer
@@ -274,7 +281,7 @@ class KickstarterPageAnalyzer:
                         sys.stdout.flush()
                     time.sleep(waiting)
                     waiting += 1
-                    temp_soup_facebook = BS(self.pb.get_page_source(),'html.parser')
+                    temp_soup_facebook = BS(pb.get_page_source(),'html.parser')
                     frame = temp_soup_facebook.select("li.facebook.mr2 .count")
             else:
                 self.facebook_like = 0
@@ -291,73 +298,66 @@ class KickstarterPageAnalyzer:
             sys.stdout.write("OK\n")
             sys.stdout.flush()
         #backers =====================
-        btn = pb.css_selector_element("#backers_nav")
+        #btn = pb.css_selector_element("#backers_nav")
         soup = None
         if not self.quietly:
             sys.stdout.write("..Visiting backers data..")
             sys.stdout.flush()
         try:
-            btn.click()
-            no_backers = True #which means, no update yet (still there may be backers)
-            last_backer_cursor = "-1"
-            #scroll down until we reach bottom
+            headers = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
+                     'connection' : 'close',
+                     'charset' : 'utf-8'}
+            params = {'format':'json'}            
+            con = requests.get(self.url,headers=headers,params=params)
+            j = con.json()
+            board = j['running_board']
+            s = BS(board,'html.parser')
+            eles = s.select('a#backers_nav data')
+            if len(eles) > 0:
+                t = eles[0].text.replace(",","")
+                n = int(t)
+                pn = n/40 + 2
+            else:
+                n = 0
+                pn = 0            
+            self.pagination = pn
+            
+            backer_url = self.url+"/backers"
+            pb.goto(backer_url)
+            page = 1
+            # measure current backers
             p = pb.get_page_source()
             s = BS(p,'html.parser')
-            current_rows = s.select("div.NS_backers__backing_row")
-            if len(current_rows) != 0:
-                no_backers = False
-            breaker = False
+            frame = s.select("div.NS_backers__backing_row .meta a")
+            prevc = len(frame)
+            # init
+            nowc = 0
+            # pagination
             while 1:
-                safety = 1
-                if pb.scroll_down():
-                    if not self.quietly:
-                        sys.stdout.write("^")
-                        sys.stdout.flush()
-                    #checking...
-                    while 1:
-                        if pb.check_scroll_complete_ajax():
-                            if safety < 0:
-                                breaker = True
-                                break
-                            else:
-                                if not self.quietly:
-                                    sys.stdout.write(".")
-                                    sys.stdout.flush()
-                                time.sleep(1)
-                                safety -= 1
-                        else:
-                            break
-                if breaker:
-                    break
-            if not self.quietly:
-                sys.stdout.write("$")
-                sys.stdout.flush()
-            if not no_backers:
+                pb.scroll_down()
+                # measure current backers
                 p = pb.get_page_source()
-                soup = BS(p,'html.parser')
-        except:
-            pass
-        if not self.quietly:
-            sys.stdout.write("OK\n")
-            sys.stdout.flush()
-        if soup != None:
-            if not self.quietly:
-                sys.stdout.write("..Backers..")
-                sys.stdout.flush()
-            self.analyze_backers(soup)
-            if not self.quietly:
-                sys.stdout.write("OK\n")
-                sys.stdout.flush()
-    def analyze_backers(self,soup):
-        # get backers data
-        frame = soup.select("div.NS_backers__backing_row .meta a")
-        backers = []
-        if len(frame) > 0:
-            for backer in frame:
-                profile_url = "%s%s"%(KICKSTARTER.MAIN,backer['href'])
-                backer_name = backer.text
-                backers.append((profile_url,backer_name,))
-        self.backers = backers
+                s = BS(p,'html.parser')
+                frame = s.select("div.NS_backers__backing_row .meta a")
+                nowc = len(frame)
+                if not self.quietly:
+                    sys.stdout.write("b")
+                    sys.stdout.flush()
+                if nowc > prevc:
+                    prevc = nowc
+                else:
+                    break
+            self.get_backers(pb)
+            #get backers
+            p = pb.get_page_source()
+            s = BS(p,'html.parser')
+            frame = s.select("div.NS_backers__backing_row .meta a")
+            backers_append = self.backers.append
+            if len(frame) > 0:
+                for backer in frame:
+                    profile_url = "%s"%(backer['href'])
+                    backer_name = backer.text
+                    backers_append((profile_url,backer_name,))
     def prep_database(self, dbname):
         sql_create_table1 = """
             CREATE TABLE IF NOT EXISTS project_benchmark_sub (
@@ -376,6 +376,8 @@ class KickstarterPageAnalyzer:
                 video_has NUMBER,
                 video_length NUMBER,
                 video_fname TEXT,
+                video_has_high NUMBER,
+                video_has_base NUMBER,
                 facebook_like NUMBER,
                 html_compressed BLOB,
                 CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT REPLACE);
@@ -393,9 +395,9 @@ class KickstarterPageAnalyzer:
                 ts_id, project_id, project_reward_number,
                 project_reward_mim_money_list, project_reward_description_total_length,
                 project_reward_description_str, image_count, image_fnames_list, description_length, description_str, risks_length, risks_str, video_has, 
-                video_length, video_fname, facebook_like,
+                video_length, video_fname, video_has_high, video_has_base, facebook_like,
                 html_compressed) VALUES (
-                ?,?,?,?,?,?,?,?,?,??,?,?,?,?,?,?
+                ?,?,?,?,?,?,?,?,?,??,?,?,?,?,?,?,?,?
             );
         """
         sql_insert2 = """
@@ -419,6 +421,6 @@ class KickstarterPageAnalyzer:
         image_fnames_list = repr(self.image_fnames)
         description_length = len(self.full_description)
         risks_length = len(self.risks)
-        
+        #TODO
 
 # END OF PROGRAM ====================
