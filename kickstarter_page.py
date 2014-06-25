@@ -3,20 +3,29 @@ KICKSTARTER PAGE DATA COLLECTION
 AUTHOR: DRTAGKIM
 2014
 '''
+# SETTING =====
+PORT = 1002
+THREAD_POOL = 10
+DBNAME = "test_page_out.db"
+QUIETLY = False
+HAS_IMAGE = False
 
+# IMPORT MODULES =====
 from web3 import PhantomBrowser as PB
 from bs4 import BeautifulSoup as BS
 from hsaudiotag import mp4 # $ pip install hsaudiotag
 from StringIO import StringIO
 from threading import Thread
-import zlib,re,time,sys,Queue
+
+import zlib, re, time, sys, Queue, sqlite3,cPickle
+import socket, os
 import requests # $ pip install requests
-import sqlite3 # database
 '''
 HELPER FUNCTIONS
 CONVERSION BETWEEN LIST AND QUEUE
 '''
 
+# HELPERS =====
 def list_to_queue(list_data):
     queue = Queue.Queue()
     map(lambda x : queue.put(x), list_data)
@@ -32,13 +41,14 @@ def queue_to_list(queue_data):
             break
     return list_data
 
-
+# PROGRAM STARTS =====
 class ImageDownloader(Thread):
     '''
 |  IMAGE DOWNLOADER
 |  GET IMAGES FROM WEBSITES AND MAKE THEM BINARY FILES
     '''
-    def __init__(self,inque,outque,quietly = True,has_image = True):
+    
+    def __init__(self, inque, outque, quietly = True, has_image = True):
         Thread.__init__(self)
         self.inque = inque
         self.outque = outque
@@ -50,35 +60,47 @@ class ImageDownloader(Thread):
         self.running = False
 
     def run(self):
+        # data referencce
         inque = self.inque
         outque = self.outque
+        has_image = self.has_image
+        # precondition
+        assert inque is not None, ""
+        assert outque is not None, ""
+        assert isinstance(inque, Queue.Queue), ""
+        assert isinstance(outque, Queue.Queue), ""
+        # processing
         while self.running:
             try:
-                src = inque.get(block=True,timeout=1)
-                if self.has_image:
+                src = inque.get(block = True, timeout = 1)
+                if has_image:
                     r = requests.get(src)
-                    if r.status_code == 200:
+                    if r.status_code == 200: # if everything is OK,
                         c = r.content
-                        outque.put([c,src])
-                    if not self.quietly:
+                        outque.put([c,src]) # return ([binary data, file url])
+                    if not self.quietly: # reporting if needed
                         sys.stdout.write("i")
                         sys.stdout.flush()
                 else:
+                    outque.put(['',src])
                     if not self.quietly:
                         sys.stdout.write("o")
                         sys.stdout.flush()
-                    outque.put(['',src])
-                inque.task_done()
-            except Queue.Empty:
+                inque.task_done() # pass the finished token
+            except Queue.Empty: # wait for 1 second for the next data
                 pass
 
-class KickstarterPageAnalyzer:
+class KickstarterPageAnalyzer(Thread):
     """
 |  Page analyzer
-|  For example, https://www.kickstarter.com/projects/1311317428/a-limited-edition-cleverly-designed-leather-collec
+|  For example,
 |  >>> kpa = KickstarterPageAnalyzer()
+|  >>> ts_id = "2014/06/23"
+|  >>> project_id = 000000001
+|  >>> url = "https://www.kickstarter.com/projects/1311317428/a-limited-edition-cleverly-designed-leather-collec"
+|  >>> kpa.read(ts_id,project_id,url)
 |  >>> kpa.analyze()
-|  >>> kpa.read(url)
+|
 |  # OPTIONS
 |  >>> kap = KickstarterPageAnalyzer(quietly = False, has_image = True)
 
@@ -91,15 +113,25 @@ class KickstarterPageAnalyzer:
 
     """
 
-    def __init__(self,quietly=True,has_image=False):
-        self.pb = None #phantom browser
+    def __init__(self, inque, dbname, quietly = True, has_image = False):
+        """
+|  quietly (True/False): display progress log
+|  has_image (True/False): download image data during scrapping
+        """
+        Thread.__init__(self) # multithreading (be careful! do not over the number of processors)
+        self.inque = inque # input queue
+        self.dbname = dbname # sqlite3 database name (out data)
+        self.pb = None # phantom browser
         self.quietly = quietly
         self.has_image = has_image
         #data clear
         self.clear()
+        self.running = True # multithreading control
 
     def clear(self):
-        self.url = " "
+        self.ts_id = ""
+        self.project_id = -1
+        self.url = ""
         self.projects_reward_result = []
         self.images = []
         self.full_description = ""
@@ -115,19 +147,39 @@ class KickstarterPageAnalyzer:
         self.facebook_like = 0
 
     def terminate(self):
-        self.pb.close()
-        self.pb == None
-
-    def read(self,url):
+        try:
+            self.pb.close()
+            self.pb == None
+        except:
+            pass
+    def stop(self):
+        self.running = False
+        self.terminate()
+        
+    def run(self):
+        """
+        """
+        inque = self.inque
         if not self.quietly:
             sys.stdout.write("Get set...")
             sys.stdout.flush()
-            
-        if self.pb == None:
-            self.pb = PB(noimage=True)
-        self.url = url
+        if self.pb == None: # if there is no browser, create new one
+            self.pb = PB(noimage=True)        
+        while self.running:
+            try:
+                self.ts_id, self.project_id, self.url = inque.get(block = True, timeout = 1)
+                self.read(self.ts_id, self.project_id, self.url) # for clear representation
+                self.analyze()
+                self.prep_database()
+                self.write_database()
+                self.clear()
+            except Queue.Empty:
+                pass
+    def read(self, ts_id, project_id, url):
+        """
+|  project page
+        """
         self.pb.goto(url)
-
         if not self.quietly:
             sys.stdout.write("OK\n")
             sys.stdout.flush()
@@ -135,12 +187,14 @@ class KickstarterPageAnalyzer:
     def analyze(self):
         pb = self.pb
         page = pb.get_page_source()
+        # preconditions
+        assert page is not None and len(page) > 0, ""
         self.page_compressed = zlib.compress(page.encode('utf-8'))
         if not self.quietly:
             sys.stdout.write("Page data compressed: self.page_compressed..\n")
             sys.stdout.flush()
         soup = BS(page,'html.parser')
-        #
+        # precondition
         assert soup != None, "No Page!"
         #main page
         if not self.quietly:
@@ -216,7 +270,7 @@ class KickstarterPageAnalyzer:
                     task.stop()
                 outlist = queue_to_list(outque)
                 self.images = copy.deepcopy(outlist)
-                
+                # replace string list to binary data list
         # video (source file name, length)s
         frame = soup.select("video.has_webm")
         self.video_fname = "na"
@@ -358,7 +412,7 @@ class KickstarterPageAnalyzer:
                     profile_url = "%s"%(backer['href'])
                     backer_name = backer.text
                     backers_append((profile_url,backer_name,))
-    def prep_database(self, dbname):
+    def prep_database(self):
         sql_create_table1 = """
             CREATE TABLE IF NOT EXISTS project_benchmark_sub (
                 ts_id NUMBER,
@@ -387,10 +441,11 @@ class KickstarterPageAnalyzer:
             CREATE TABLE IF NOT EXISTS int_project_backer (
                 ts_id NUMBER,
                 project_id NUMBER,
+                profile_url TEXT,
                 backer_slug TEXT,
                 CONSTRAINT update_rule UNIQUE (ts_id, project_id, backer_slug) ON CONFLICT REPLACE);
         """
-        sql_insert1 = """
+        self.sql_insert1 = """
             INSERT INTO project_benchmark_sub (
                 ts_id, project_id, project_reward_number,
                 project_reward_mim_money_list, project_reward_description_total_length,
@@ -400,27 +455,92 @@ class KickstarterPageAnalyzer:
                 ?,?,?,?,?,?,?,?,?,??,?,?,?,?,?,?,?,?
             );
         """
-        sql_insert2 = """
+        self.sql_insert2 = """
             INSERT INTO int_project_backer (
-                ts_id, project_id, backer_slug)
-                VALUES (?,?,?);
+                ts_id, project_id, profile_url, backer_slug)
+                VALUES (?,?,?,?);
         """
-        con = sqlite3.connect(dbname)
+        con = sqlite3.connect(self.dbname)
         cur = con.cursor()
         cur.execute(sql_create_table1)
         con.commit()
         cur.execute(sql_create_table2)
         con.commit()
+        cur.close()
+        con.close()
     def write_database(self):
         project_reward_number = len(self.projects_reward_result)
         project_reward_mim_money_list = repr([item[0] for item in self.projects_reward_result])
         project_reward_description_total_length = 0
+        project_reward_desc_temp = []
         for item in self.projects_reward_result:
             project_reward_description_total_length += len(item[2])
+            project_reward_desc_temp.append(item[2])
+        project_reward_description_str = " ".join(project_reward_desc_temp)
         image_count = len(self.image_fnames)
         image_fnames_list = repr(self.image_fnames)
         description_length = len(self.full_description)
         risks_length = len(self.risks)
-        #TODO
+        # insert first
+        if not self.quietly:
+            sys.stdout.write("...DATA BASE INIT...")
+            sys.stdout.flush()
+        con = sqlite3.connect(self.dbname)
+        cur = con.cursor()
+        cur.execute(self.sql_insert1,(
+            self.ts_id,self.project_id,
+            project_reward_number,project_reward_mim_money_list,
+            project_reward_description_total_length,
+            project_reward_description_str,
+            image_count,image_fnames_list,
+            description_length,self.full_description,
+            risks_length,self.risks,
+            self.video_has,self.video_length,self.video_fname,self.video_has_high,self.video_has_base,self.facebook_like,
+            sqlite3.Binary(cPickle.dumps(self.page_compressed,cPickle.HIGHEST_PROTOCOL))
+        ))
+        con.commit()
+        backer_input_list = []
+        for backer in self.backers:
+            backer_input_list.append((self.ts_id, self.project_id, backer[0], backer[1],))
+        cur.executemany(self.sql_insert2,backer_input_list)
+        con.commit()
+        cur.close()
+        con.close()
+        if not self.quietly:
+            sys.stdout.write("...DB OK...")
+            sys.stdout.flush()
+            
+# SERVER
 
+if __name__ == "__main__":
+    inque = Queue.Queue()
+    workers = []
+    for i in range(THREAD_POOL):
+        worker = KickstarterPageAnalyzer(inque,DBNAME,QUIETLY,HAS_IMAGE)
+        worker.setDaemon(True)
+        workers.append(worker)
+    server = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    server.bind('',PORT)
+    server.listen(1)
+    sys.stdout.write("SERVER STARTS\n=============\n")
+    sys.stdout.flush()
+    while 1:
+        try:
+            conn, addr = server.accept()
+            data = conn.recv(1000000)
+            data = eval(data)
+            inque.put(data)
+            conn.close() # disconnect client
+        except KeyboardInterrupt:
+            sys.stdout.write("\n\nSERVER OUT.\nTHANK YOU.")
+            sys.stdout.flush()
+            break
+        except socket.error, msg:
+            sys.stdout.write(msg)
+            sys.stdout.write("\n\nSocket Error.\n")
+            sys.stdout.flush()
+            break
+    for worker in workers: # terminate threads
+        worker.stop()
+    server.close() # close server
 # END OF PROGRAM ====================
