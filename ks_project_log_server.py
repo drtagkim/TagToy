@@ -1,35 +1,39 @@
 '''
-KICKSTARTER PAGE DATA COLLECTION
+KICKSTARTER PROJECT LOG COLLECTION
 AUTHOR: DRTAGKIM
 2014
 '''
 # SETTING =====
-
-
-
+SCRAP_FULL = False
+PAGE_REQUEST_TRIAL = 10 # how many calls if it fails?
+DATABASE_NAME = "sample.db" #SQLite3 database name (main)
 # IMPORT MODULES =====
 from datetime import datetime
 from threading import Thread
 
-import re, sys, time, sqlite3, socket, os
+import re, sys, time, sqlite3, socket, os, Queue
 import requests # $ pip install requests
+import server_setting as SS
 
 class KickstarterProjectCollectorJson(Thread): # multithreading
-    def __init__(self,category_id,politeness = 60):
+    def __init__(self, my_id, inque,politeness = 60):
         Thread.__init__(self)
         self.url="https://www.kickstarter.com/discover/advanced"
-        self.category_id = category_id
+        self.inque = inque
+        self.my_id = my_id
         self.rv_static = []
         self.rv_dynamic = []
+        self.rv_search_temp = []
         self.politeness = politeness
         self.running = True
-    def read(self,page):
+    def read(self, category_id, page):
         parameters = {
-            "category_id":str(self.category_id),
+            "category_id":str(category_id),
             "sort":"end_date",
             "format":"json",
             "page":str(page)}
-        trial = 10
+        trial = SS.PAGE_REQUEST_TRIAL
+        fatal_error = 0
         while 1:
             try:
                 r = requests.get(self.url,params=parameters)
@@ -38,30 +42,39 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 time.sleep(self.politeness)
                 trial -= 1
                 if trial < 0:
-                    assert False,"No connection"
+                    if fatal_error > 10:
+                        sys.stdout.write("Network failure!\n")
+                        sys.stdout.flush()
+                        sys.exit(0)
+                    trial = SS.PAGE_REQUEST_TRIAL # reset
+                    fatal_error += 1
+                    time.sleep(self.politeness * 10) # for ten minutes break
         rv  = r.json()
         r.close()
         return rv
-    def scrap(self,full=False,time_lag = -1):
+    def scrap(self, category_id, time_lag = -1):
         """
 |  Main
 |  To collect everything, set full as True otherwise False
 |  Set time lag for concurrent monitoring (default: yesterday)
         """
+        # REFERENCE
         politeness = self.politeness
         rv_static_append = self.rv_static.append
         rv_dynamic_append = self.rv_dynamic.append
+        rv_search_temp_append = self.rv_search_temp.append
+        # CONTROL
         page = 1
         hit = 0
         hit_temp = 0
         breaker = False
+        tick = 0
         #timestamp doday
         now_ts = time.localtime()
         ts_id = "%04d/%02d/%02d"%(now_ts.tm_year,now_ts.tm_mon,now_ts.tm_mday,) 
         ts_comp = datetime.fromtimestamp(time.mktime(now_ts))
-        tick = 0
         while 1:
-            data = self.read(page)
+            data = self.read(category_id, page)
             if data == "-1":
                 print self.url
                 print "Bad Connection"
@@ -142,7 +155,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                     location_nearby_web1 = ""
                     location_nearby_web2 = ""
                 #
-                if not full:
+                if not SS.SCRAP_FULL:
                     if not currently:
                         breaker = True
                         break
@@ -155,13 +168,12 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 rv_dynamic_append([ts_id,project_id,backers,pledged,state,currently,
                                    state_changed_unix,state_changed_str,deadline_unix,deadline_str,
                                    ])
+                rv_search_temp_append([ts_id,project_id,project_url])
                 tick += 1
-                sys.stdout.write("\r[%06d/%06d]"%(tick,self.total_num))
+                sys.stdout.write("..[%02d:%06d/%06d].."%(self.my_id,tick,self.total_num))
                 sys.stdout.flush()                  
             if breaker:
                 break
-
-            #time.sleep(politeness)
     def export_sqlite(self,db_name):
         """
 |  TEST
@@ -220,6 +232,13 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 deadline_str TEXT,
                 CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE);
         """
+        sql_create_project_search = """
+            CREATE TABLE IF NOT EXISTS project_serach_temp (
+                ts_id TEXT,
+                project_id NUMBER,
+                project_url TEXT,
+                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE);
+        """
         sql_insert_static = """
             INSERT INTO project_benchmark (
             project_id,project_name,project_slug,country,created_at_unix,created_at_str,
@@ -236,6 +255,11 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 state_changed_unix,state_changed_str,deadline_unix,deadline_str
             ) VALUES (?,?,?,?,?,?,?,?,?,?);
         """
+        sql_insert_project_search = """
+            INSERT INTO project_search_temp (
+                ts_id, project_id, project_url
+            ) VALUES (?,?,?);
+        """
         cur = con.cursor()
         cur.execute(sql_create_staic)
         con.commit()
@@ -245,12 +269,23 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         con.commit()
         cur.executemany(sql_insert_dynamic,self.rv_dynamic)
         con.commit()
+        cur.executemany(sql_insert_project_search,self.rv_search_temp)
+        con.commit()
         cur.close()
         con.close()
         def stop(self):
             self.running = False
         def run(self):
-            pass
+            # REFERENCE
+            inque = self.inque
+            while self.running:
+                try:
+                    category_id = inque.get(block=True, timeout = 60)
+                    self.scrap(category_id)
+                    self.export_sqlite(SS.DATABASE_NAME)
+                    inque.task_done()
+                except Queue.Empty:
+                    pass
 class KICKSTARTER:
     """
 |  General string values for the Kickstarter site
@@ -271,57 +306,63 @@ class KICKSTARTER:
     CATEGORY_THEATER = 17
     
 if __name__ == "__main__":
+    inque = Queue.Queue()
+    workers = []
+    for i in range(SS.PROJECT_LOG_SERVER_THREAD_POOL):
+        worker = KickstarterProjectCollectorJson(i,inque)
+        worker.setDaemon(True)
+        workers.append(worker)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP/IP
+    server.bind('',SS.PROJECT_LOG_PORT)
+    server.listen(1)
+    sys.stdout.write("SERVER STARTS\n=============\n")
+    sys.stdout.flush()
     category_id = -1
     while 1:
-        category = raw_input("Art=1\nComics=2\nDance=3\nDesign=4\nFashion=5\nFilm=6\nFood=7\nGames=8\nMusic=9\nPhoto=10\nPublishing=11\nTechnology=12\nTheater=13\n>")
-        if category == "1":
-            category_id = KICKSTARTER.CATEGORY_ART
+        try:
+            conn.addr = server.accept()
+            category = conn.recv(1024)
+            if category == "1":
+                category_id = KICKSTARTER.CATEGORY_ART
+            elif category == "2":
+                category_id = KICKSTARTER.CATEGORY_COMICS
+            elif category == "3":
+                category_id = KICKSTARTER.CATEGORY_DANCE
+            elif category == "4":
+                category_id = KICKSTARTER.CATEGORY_DESIGN
+            elif category == "5":
+                category_id = KICKSTARTER.CATEGORY_FASHION
+            elif category == "6":
+                category_id = KICKSTARTER.CATEGORY_FILM
+            elif category == "7":
+                category_id = KICKSTARTER.CATEGORY_FOOD
+            elif category == "8":
+                category_id = KICKSTARTER.CATEGORY_GAMES
+            elif category == "9":
+                category_id = KICKSTARTER.CATEGORY_MUSIC
+            elif category == "10":
+                category_id = KICKSTARTER.CATEGORY_PHOTOGRAPHY
+            elif category == "11":
+                category_id = KICKSTARTER.CATEGORY_PUBLISHING
+            elif category == "12":
+                category_id = KICKSTARTER.CATEGORY_TECHNOLOGY
+            elif category == "13":
+                category_id = KICKSTARTER.CATEGORY_THEATER
+            else:
+                conn.close()
+                continue
+            inque.put(category_id)
+            conn.close()
+        except KeyboardInterrupt:
+            sys.stdout.write("\n\nSERVER OUT.\nTHANK YOU.")
+            sys.stdout.flush()
             break
-        elif category == "2":
-            category_id = KICKSTARTER.CATEGORY_COMICS
+        except socket.error, msg:
+            sys.stdout.write(msg)
+            sys.stdout.write("\n\nSocket Error.\n")
+            sys.stdout.flush()
             break
-        elif category == "3":
-            category_id = KICKSTARTER.CATEGORY_DANCE
-            break
-        elif category == "4":
-            category_id = KICKSTARTER.CATEGORY_DESIGN
-            break
-        elif category == "5":
-            category_id = KICKSTARTER.CATEGORY_FASHION
-            break
-        elif category == "6":
-            category_id = KICKSTARTER.CATEGORY_FILM
-            break
-        elif category == "7":
-            category_id = KICKSTARTER.CATEGORY_FOOD
-            break
-        elif category == "8":
-            category_id = KICKSTARTER.CATEGORY_GAMES
-            break
-        elif category == "9":
-            category_id = KICKSTARTER.CATEGORY_MUSIC
-            break
-        elif category == "10":
-            category_id = KICKSTARTER.CATEGORY_PHOTOGRAPHY
-            break
-        elif category == "11":
-            category_id = KICKSTARTER.CATEGORY_PUBLISHING
-            break
-        elif category == "12":
-            category_id = KICKSTARTER.CATEGORY_TECHNOLOGY
-            break
-        elif category == "13":
-            category_id = KICKSTARTER.CATEGORY_THEATER
-            break
-        else:
-            print "Input again!"
-    rule = raw_input("Which data do you want to collect: all data (=yes) or current projects (=no)?\n(yes/no)>")
-    if rule.lower() == "yes":
-        full = True
-    else:
-        full = False
-    database = raw_input("Database location\n>")
-    kpcj = KickstarterProjectCollectorJson(category_id)
-    kpcj.scrap(full = full)
-    kpcj.export_sqlite(database)
-    print "Bye"
+    for worker in workers:
+        worker.stop()
+    server.close() # close server
+# END OF PROGRAM=======================
