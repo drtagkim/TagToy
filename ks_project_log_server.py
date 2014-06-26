@@ -16,7 +16,7 @@ import requests # $ pip install requests
 import server_setting as SS
 
 class KickstarterProjectCollectorJson(Thread): # multithreading
-    def __init__(self, my_id, inque,politeness = 60):
+    def __init__(self, my_id, inque, politeness = 60):
         Thread.__init__(self)
         self.url="https://www.kickstarter.com/discover/advanced"
         self.inque = inque
@@ -73,13 +73,15 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         now_ts = time.localtime()
         ts_id = "%04d/%02d/%02d"%(now_ts.tm_year,now_ts.tm_mon,now_ts.tm_mday,) 
         ts_comp = datetime.fromtimestamp(time.mktime(now_ts))
+        self.total_num = -1
         while 1:
             data = self.read(category_id, page)
             if data == "-1":
                 print self.url
                 print "Bad Connection"
                 assert False,""
-            self.total_num = data["total_hits"]
+            if self.total_num < 0:
+                self.total_num = data["total_hits"]
             projects = data["projects"]
             if len(projects) <=0:
                 break
@@ -119,7 +121,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 deadline_unix = project['deadline']
                 deadline_str = (datetime.fromtimestamp(deadline_unix)).strftime("%Y-%m-%d %H:%M")
                 deadline_comp = datetime.fromtimestamp(deadline_unix) 
-                currently = ((deadline_comp - ts_comp).days < time_lag ) # including yesterday...
+                currently = ((deadline_comp - ts_comp).days >= time_lag ) # including yesterday...
                 # ABOUT CREATOR
                 creator = project['creator']
                 creator_id = creator['id']
@@ -170,8 +172,8 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                                    ])
                 rv_search_temp_append([ts_id,project_id,project_url])
                 tick += 1
-                sys.stdout.write("..[%02d:%06d/%06d].."%(self.my_id,tick,self.total_num))
-                sys.stdout.flush()                  
+            sys.stdout.write("..[%02d:%06d/%06d].."%(self.my_id,tick,self.total_num))
+            sys.stdout.flush()                  
             if breaker:
                 break
     def export_sqlite(self,db_name):
@@ -233,7 +235,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE);
         """
         sql_create_project_search = """
-            CREATE TABLE IF NOT EXISTS project_serach_temp (
+            CREATE TABLE IF NOT EXISTS project_search_temp (
                 ts_id TEXT,
                 project_id NUMBER,
                 project_url TEXT,
@@ -265,6 +267,8 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         con.commit()
         cur.execute(sql_create_dynamic)
         con.commit()
+        cur.execute(sql_create_project_search)
+        con.commit()
         cur.executemany(sql_insert_static,self.rv_static)
         con.commit()
         cur.executemany(sql_insert_dynamic,self.rv_dynamic)
@@ -273,19 +277,24 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         con.commit()
         cur.close()
         con.close()
-        def stop(self):
-            self.running = False
-        def run(self):
-            # REFERENCE
-            inque = self.inque
-            while self.running:
-                try:
-                    category_id = inque.get(block=True, timeout = 60)
-                    self.scrap(category_id)
-                    self.export_sqlite(SS.DATABASE_NAME)
-                    inque.task_done()
-                except Queue.Empty:
-                    pass
+    def stop(self):
+        self.running = False
+    def run(self):
+        # REFERENCE
+        inque = self.inque
+        while self.running:
+            try:
+                category_id = inque.get(block=True, timeout = 60)
+                sys.stdout.write(">==")
+                sys.stdout.flush()
+                self.scrap(category_id)
+                self.export_sqlite(SS.DATABASE_NAME)
+                inque.task_done()
+                sys.stdout.write("==<")
+                sys.stdout.flush()
+            except Queue.Empty:
+                sys.stdout.write(".w.")
+                sys.stdout.flush()
 class KICKSTARTER:
     """
 |  General string values for the Kickstarter site
@@ -312,16 +321,19 @@ if __name__ == "__main__":
         worker = KickstarterProjectCollectorJson(i,inque)
         worker.setDaemon(True)
         workers.append(worker)
+        worker.start()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP/IP
-    server.bind('',SS.PROJECT_LOG_PORT)
-    server.listen(1)
+    server.bind(('',SS.PROJECT_LOG_PORT))
+    server.listen(SS.PROJECT_LOG_SERVER_THREAD_POOL)
     sys.stdout.write("SERVER STARTS\n=============\n")
     sys.stdout.flush()
     category_id = -1
     while 1:
         try:
-            conn.addr = server.accept()
+            conn,addr = server.accept()
             category = conn.recv(1024)
+            sys.stdout.write("RECV: %s\n" % category)
+            sys.stdout.flush()
             if category == "1":
                 category_id = KICKSTARTER.CATEGORY_ART
             elif category == "2":

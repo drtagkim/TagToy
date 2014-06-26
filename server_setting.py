@@ -16,6 +16,10 @@ PROJECT_PAGE_START_HOUR = '10'
 PROJECT_PAGE_START_MIN = '0'
 PROJECT_PAGE_START_SEC = '0'
 
+VACUUM_DATABASE_HOUR = '23'
+VACUUM_DATABASE_MIN = '0'
+VACUUM_DATABASE_SEC = '0'
+
 # PROJECT_LOG_SERVER SETTING ====================
 # Data collection range. If True, full collection (from the beginning); othersie, False
 SCRAP_FULL = False
@@ -27,3 +31,4 @@ CATEGORIES = ["1","2","3","4","5","6","7","8","9","10","11","12","13"]
 # PROJECT_PAGE_SERVER SETTING ===================
 PROJECT_PAGE_PORT = 1002
 PROJECT_PAGE_SERVER_THREAD_POOL = 10
+READ_LAG_TOLERANCE = 0 # second

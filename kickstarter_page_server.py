@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup as BS
 from hsaudiotag import mp4 # $ pip install hsaudiotag
 from StringIO import StringIO
 from threading import Thread
+from selenium.webdriver.support.ui import WebDriverWait
 
 import zlib, re, time, sys, Queue, sqlite3,cPickle
 import socket, os
@@ -41,7 +42,20 @@ def queue_to_list(queue_data):
         except:
             break
     return list_data
-
+def filter_number(money):
+    money_exps = re.findall(r'([0-9,]+)',money)
+    rv = 0.0
+    if len(money_exps) > 0:
+        money_exp = money_exps[0].replace(",","")
+        rv = float(money_exp)
+    return rv
+def facebook_expected_condition(pb):
+    page = pb.get_page_source()
+    soup = BS(page,'html.parser')
+    eles = soup.select("li.facebook.mr2 .count")
+    if len(eles) > 0:
+        rv = len(eles[0].text) > 0
+    return eles[0]
 # PROGRAM STARTS =====
 class ImageDownloader(Thread):
     '''
@@ -161,26 +175,31 @@ class KickstarterPageAnalyzer(Thread):
         """
         """
         inque = self.inque
-        if not self.quietly:
-            sys.stdout.write("Get set...")
-            sys.stdout.flush()
         if self.pb == None: # if there is no browser, create new one
             self.pb = PB(noimage=True)        
+        if not self.quietly:
+            sys.stdout.write("..PB..")
+            sys.stdout.flush()        
         while self.running:
             try:
-                self.ts_id, self.project_id, self.url = inque.get(block = True, timeout = 1)
+                self.ts_id, self.project_id, self.url = inque.get(block = True, timeout = 60)
+                sys.stdout.write("#")
+                sys.stdout.flush()                
                 self.read(self.ts_id, self.project_id, self.url) # for clear representation
                 self.analyze()
                 self.prep_database()
                 self.write_database()
                 self.clear()
+                inque.task_done()
             except Queue.Empty:
-                pass
+                sys.stdout.write(".w.")
+                sys.stdout.flush()
     def read(self, ts_id, project_id, url):
         """
 |  project page
         """
         self.pb.goto(url)
+        time.sleep(SS.READ_LAG_TOLERANCE)
         if not self.quietly:
             sys.stdout.write("OK\n")
             sys.stdout.flush()
@@ -323,31 +342,17 @@ class KickstarterPageAnalyzer(Thread):
                 pass
         self.risks = rv        
         # Facebook
-        frame = soup.select("li.facebook.mr2 .count")
-        waiting = 1
-        while 1:
-            if len(frame) > 0:
-                try:
-                    facebook_count = int(frame[0].text) #error prone
-                    break
-                except:
-                    if not self.quietly:
-                        sys.stdout.write("[facebook waiting...%d]\n"%waiting)
-                        sys.stdout.flush()
-                    time.sleep(waiting)
-                    waiting += 1
-                    temp_soup_facebook = BS(pb.get_page_source(),'html.parser')
-                    frame = temp_soup_facebook.select("li.facebook.mr2 .count")
-            else:
-                self.facebook_like = 0
-                break
-            if waiting >= 10:
-                if not self.quietly:
-                    sys.stdout.write(" [facebook error] ")
-                    sys.stdout.flush()
-                self.facebook_like = -1 #means, error
-                break
-        
+        fb_cnt = WebDriverWait(pb,60).until(facebook_expected_condition)
+        try:
+            facebook_count = int(fb_cnt.text.strip().replace(",",""))
+            if not self.quietly:
+                sys.stdout.write(".fb.")
+                sys.stdout.flush()
+        except:
+            if not self.quietly:
+                sys.stdout.write(".!!.")
+                sys.stdout.flush()            
+            facebook_count = -1
         # ============================
         if not self.quietly:
             sys.stdout.write("OK\n")
@@ -358,61 +363,61 @@ class KickstarterPageAnalyzer(Thread):
         if not self.quietly:
             sys.stdout.write("..Visiting backers data..")
             sys.stdout.flush()
-        try:
-            headers = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
-                     'connection' : 'close',
-                     'charset' : 'utf-8'}
-            params = {'format':'json'}            
-            con = requests.get(self.url,headers=headers,params=params)
-            j = con.json()
-            board = j['running_board']
-            s = BS(board,'html.parser')
-            eles = s.select('a#backers_nav data')
-            if len(eles) > 0:
-                t = eles[0].text.replace(",","")
-                n = int(t)
-                pn = n/40 + 2
-            else:
-                n = 0
-                pn = 0            
-            self.pagination = pn
-            
-            backer_url = self.url+"/backers"
-            pb.goto(backer_url)
-            page = 1
+
+        headers = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
+                 'connection' : 'close',
+                 'charset' : 'utf-8'}
+        params = {'format':'json'}            
+        con = requests.get(self.url,headers=headers,params=params)
+        j = con.json()
+        board = j['running_board']
+        s = BS(board,'html.parser')
+        eles = s.select('a#backers_nav data')
+        if len(eles) > 0:
+            t = eles[0].text.replace(",","")
+            n = int(t)
+            pn = n/40 + 2
+        else:
+            n = 0
+            pn = 0            
+        self.pagination = pn
+        
+        backer_url = self.url+"/backers"
+        pb.goto(backer_url)
+        time.sleep(SS.READ_LAG_TOLERANCE)
+        page = 1
+        # measure current backers
+        p = pb.get_page_source()
+        s = BS(p,'html.parser')
+        frame = s.select("div.NS_backers__backing_row .meta a")
+        prevc = len(frame)
+        # init
+        nowc = 0
+        # pagination
+        while 1:
+            pb.scroll_down()
             # measure current backers
             p = pb.get_page_source()
             s = BS(p,'html.parser')
             frame = s.select("div.NS_backers__backing_row .meta a")
-            prevc = len(frame)
-            # init
-            nowc = 0
-            # pagination
-            while 1:
-                pb.scroll_down()
-                # measure current backers
-                p = pb.get_page_source()
-                s = BS(p,'html.parser')
-                frame = s.select("div.NS_backers__backing_row .meta a")
-                nowc = len(frame)
-                if not self.quietly:
-                    sys.stdout.write("b")
-                    sys.stdout.flush()
-                if nowc > prevc:
-                    prevc = nowc
-                else:
-                    break
-            self.get_backers(pb)
-            #get backers
-            p = pb.get_page_source()
-            s = BS(p,'html.parser')
-            frame = s.select("div.NS_backers__backing_row .meta a")
-            backers_append = self.backers.append
-            if len(frame) > 0:
-                for backer in frame:
-                    profile_url = "%s"%(backer['href'])
-                    backer_name = backer.text
-                    backers_append((profile_url,backer_name,))
+            nowc = len(frame)
+            if not self.quietly:
+                sys.stdout.write("b")
+                sys.stdout.flush()
+            if nowc > prevc:
+                prevc = nowc
+            else:
+                break
+        #get backers
+        p = pb.get_page_source()
+        s = BS(p,'html.parser')
+        frame = s.select("div.NS_backers__backing_row .meta a")
+        backers_append = self.backers.append
+        if len(frame) > 0:
+            for backer in frame:
+                profile_url = "%s"%(backer['href'])
+                backer_name = backer.text
+                backers_append((profile_url,backer_name,))
     def prep_database(self):
         sql_create_table1 = """
             CREATE TABLE IF NOT EXISTS project_benchmark_sub (
@@ -436,7 +441,6 @@ class KickstarterPageAnalyzer(Thread):
                 facebook_like NUMBER,
                 html_compressed BLOB,
                 CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT REPLACE);
-            )
         """
         sql_create_table2 = """
             CREATE TABLE IF NOT EXISTS int_project_backer (
@@ -453,7 +457,7 @@ class KickstarterPageAnalyzer(Thread):
                 project_reward_description_str, image_count, image_fnames_list, description_length, description_str, risks_length, risks_str, video_has, 
                 video_length, video_fname, video_has_high, video_has_base, facebook_like,
                 html_compressed) VALUES (
-                ?,?,?,?,?,?,?,?,?,??,?,?,?,?,?,?,?,?
+                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
             );
         """
         self.sql_insert2 = """
@@ -520,9 +524,10 @@ if __name__ == "__main__":
         worker = KickstarterPageAnalyzer(inque,SS.DATABASE_NAME,SS.QUIETLY,SS.HAS_IMAGE)
         worker.setDaemon(True)
         workers.append(worker)
+        worker.start()
     server = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    server.bind('',SS.PROJECT_PAGE_PORT)
-    server.listen(1)
+    server.bind(('',SS.PROJECT_PAGE_PORT))
+    server.listen(SS.PROJECT_PAGE_SERVER_THREAD_POOL)
     sys.stdout.write("SERVER STARTS\n=============\n")
     sys.stdout.flush()
     while 1:

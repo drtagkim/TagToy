@@ -6,6 +6,25 @@ Author: DrTagKim
 
 import web3,sys,time, requests
 from bs4 import BeautifulSoup as BS
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+def fb_wait(pb):
+    page = pb.get_page_source()
+    soup = BS(page,'html.parser')
+    eles = soup.select("li.facebook.mr2 .count")
+    if len(eles) > 0:
+        rv = len(eles[0].text) > 0
+    return eles[0]
+class Facebook:
+    def __init__(self,url):
+        self.url = url
+        self.pb = web3.PhantomBrowser()
+        self.go()
+    def go(self):
+        self.pb.goto(self.url)
+        ele = WebDriverWait(self.pb,30).until(fb_wait)
+        print ele
 
 class ProjectBacker:
     def __init__(self,url,quietly=False):
