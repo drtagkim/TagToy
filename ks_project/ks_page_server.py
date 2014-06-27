@@ -431,7 +431,7 @@ class KickstarterPageAnalyzer(Thread):
     def prep_database(self):
         sql_create_table1 = """
             CREATE TABLE IF NOT EXISTS project_benchmark_sub (
-                ts_id NUMBER,
+                ts_id TEXT,
                 project_id NUMBER,
                 project_reward_number NUMBER,
                 project_reward_mim_money_list TEXT,
@@ -453,7 +453,7 @@ class KickstarterPageAnalyzer(Thread):
         """
         sql_create_table2 = """
             CREATE TABLE IF NOT EXISTS int_project_backer (
-                ts_id NUMBER,
+                ts_id TEXT,
                 project_id NUMBER,
                 profile_url TEXT,
                 backer_slug TEXT,
