@@ -3,13 +3,9 @@ KICKSTARTER PROJECT LOG COLLECTION
 AUTHOR: DRTAGKIM
 2014
 '''
-# SETTING =====
-SCRAP_FULL = False
-PAGE_REQUEST_TRIAL = 10 # how many calls if it fails?
-DATABASE_NAME = "sample.db" #SQLite3 database name (main)
 # IMPORT MODULES =====
 from datetime import datetime
-from threading import Thread
+from threading import Thread, current_thread
 
 import re, sys, time, sqlite3, socket, os, Queue
 import requests # $ pip install requests
@@ -26,6 +22,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         self.rv_search_temp = []
         self.politeness = politeness
         self.running = True
+        self.tname = current_thread().name #current thread name
     def read(self, category_id, page):
         parameters = {
             "category_id":str(category_id),
@@ -172,7 +169,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                                    ])
                 rv_search_temp_append([ts_id,project_id,project_url])
                 tick += 1
-            sys.stdout.write("..[%02d:%06d/%06d].."%(self.my_id,tick,self.total_num))
+            sys.stdout.write(".[%03d:%06d/%06d]."%(self.my_id,tick,self.total_num))
             sys.stdout.flush()                  
             if breaker:
                 break
@@ -282,19 +279,23 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
     def run(self):
         # REFERENCE
         inque = self.inque
+        waiting_noticed = False
         while self.running:
             try:
                 category_id = inque.get(block=True, timeout = 60)
-                sys.stdout.write(">==")
+                waiting_noticed = False
+                sys.stdout.write("[%s]>=="%self.tname)
                 sys.stdout.flush()
                 self.scrap(category_id)
                 self.export_sqlite(SS.DATABASE_NAME)
                 inque.task_done()
-                sys.stdout.write("==<")
+                sys.stdout.write("[%s]==<"%self.tname)
                 sys.stdout.flush()
             except Queue.Empty:
-                sys.stdout.write(".w.")
-                sys.stdout.flush()
+                if not waiting_noticed:
+                    sys.stdout.write(" (^.^) ")
+                    sys.stdout.flush()
+                    waiting_noticed = True
 class KICKSTARTER:
     """
 |  General string values for the Kickstarter site
@@ -332,7 +333,10 @@ if __name__ == "__main__":
         try:
             conn,addr = server.accept()
             category = conn.recv(1024)
-            sys.stdout.write("RECV: %s\n" % category)
+            if category.lower() == "off":
+                conn.close()
+                break
+            sys.stdout.write(".[SERVER RECEIVE: %s]." % category)
             sys.stdout.flush()
             if category == "1":
                 category_id = KICKSTARTER.CATEGORY_ART
@@ -377,4 +381,6 @@ if __name__ == "__main__":
     for worker in workers:
         worker.stop()
     server.close() # close server
+    sys.stdout.write("SERVER STOPS\nBYE.\n")
+    sys.stdout.flush()    
 # END OF PROGRAM=======================

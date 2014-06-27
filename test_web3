@@ -1,5 +1,0 @@
-'''
-WEB3 TEST
-'''
-from web3 import PhantomBrowser as PB
-

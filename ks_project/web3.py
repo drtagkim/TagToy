@@ -5,14 +5,11 @@
 # Author:      drtagkim
 #-------------------------------------------------------------------------------
 
-import requests
-import gzip
-import cPickle
-import re
+import gzip, cPickle, re, sys,time
 from threading import Thread
-from bs4 import BeautifulSoup as BS
-import sys,time
 from Queue import Queue
+import requests
+from bs4 import BeautifulSoup as BS
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -205,6 +202,10 @@ select.deselect_all()
         self.driver.set_window_size(1024,768)
 
     def goto(self,url,filter_func = None):
+        """
+| filter_func: sufficient condition of loading a page
+| if the return value True, stop waiting
+        """
         self.driver.get(url)
         if filter_func != None:
             WebDriverWait(self,60).until(filter_func)
@@ -238,7 +239,10 @@ select.deselect_all()
         f.close()
         return "page source: %s" % file_location
 
-    def get_page_source(self,remove_js=False):
+    def get_page_source(self, remove_js = False):
+        """
+|  if remove_js True, all scripts are deleted
+        """
         page = self.driver.page_source
         if remove_js:
             page = re.sub(r'<script.*?/script>','',page)
