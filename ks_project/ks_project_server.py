@@ -12,7 +12,7 @@ import requests # $ pip install requests
 import server_setting as SS
 
 class KickstarterProjectCollectorJson(Thread): # multithreading
-    def __init__(self, my_id, inque, politeness = 60):
+    def __init__(self, my_id, inque, politeness = 10):
         Thread.__init__(self)
         self.url="https://www.kickstarter.com/discover/advanced"
         self.inque = inque
@@ -24,6 +24,9 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         self.running = True
         self.tname = current_thread().name #current thread name
     def read(self, category_id, page):
+        headers = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
+                         'connection' : 'close',
+                         'charset' : 'utf-8'}        
         parameters = {
             "category_id":str(category_id),
             "sort":"end_date",
@@ -31,11 +34,16 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
             "page":str(page)}
         trial = SS.PAGE_REQUEST_TRIAL
         fatal_error = 0
+        rv = ""
         while 1:
             try:
-                r = requests.get(self.url,params=parameters)
+                r = requests.get(self.url,params=parameters,headers=headers)
+                rv  = r.json()
+                r.close()
                 break
             except:
+                sys.stdout.write(".?.")
+                sys.stdout.flush()
                 time.sleep(self.politeness)
                 trial -= 1
                 if trial < 0:
@@ -46,10 +54,9 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                     trial = SS.PAGE_REQUEST_TRIAL # reset
                     fatal_error += 1
                     time.sleep(self.politeness * 10) # for ten minutes break
-        rv  = r.json()
-        r.close()
+        assert len(rv) > 0, ""
         return rv
-    def scrap(self, category_id, time_lag = -1):
+    def scrap(self, category_id_input, time_lag = -1):
         """
 |  Main
 |  To collect everything, set full as True otherwise False
@@ -72,7 +79,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         ts_comp = datetime.fromtimestamp(time.mktime(now_ts))
         self.total_num = -1
         while 1:
-            data = self.read(category_id, page)
+            data = self.read(category_id_input, page)
             if data == "-1":
                 print self.url
                 print "Bad Connection"
@@ -284,12 +291,12 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
             try:
                 category_id = inque.get(block=True, timeout = 60)
                 waiting_noticed = False
-                sys.stdout.write("[%s]>=="%self.tname)
+                sys.stdout.write("[%03d]>=="%self.my_id)
                 sys.stdout.flush()
                 self.scrap(category_id)
                 self.export_sqlite(SS.DATABASE_NAME)
                 inque.task_done()
-                sys.stdout.write("[%s]==<"%self.tname)
+                sys.stdout.write("[%03d]==<"%self.my_id)
                 sys.stdout.flush()
             except Queue.Empty:
                 if not waiting_noticed:
