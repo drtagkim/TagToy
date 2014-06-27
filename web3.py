@@ -201,11 +201,13 @@ select.deselect_all()
             # http://phantomjs.org/api/command-line.html (service_args reference)
         else:
             self.driver = webdriver.PhantomJS(service_args=['--webdriver-loglevel=NONE'])
+        # graphic device setting
         self.driver.set_window_size(1024,768)
 
-    def goto(self,url):
+    def goto(self,url,filter_func = None):
         self.driver.get(url)
-
+        if filter_func != None:
+            WebDriverWait(self,60).until(filter_func)
     def capture(self,file_location):
         if file_location == None or len(file_location) == 0:
             print "Input proper file_location"
@@ -257,14 +259,13 @@ select.deselect_all()
         return self.driver.execute_script("return $(document).height() <= $(window).height()+$(window).scrollTop();")
         #except WebDriverException:
         #    pass
-    def scroll_down(self,patient=30):
+    def scroll_down(self, patient = 30,filter_func = None):
+        rv = False
         script = "window.scrollTo(0, document.body.scrollHeight);"
         self.execute_javascript(script)
-        try:
-            WebDriverWait(self.driver,patient).until(self.wait_ajax,"Timeout waiting for page to load")
-            return True
-        except:
-            return False # no ajax
+        if filter_func != None:
+            rv = WebDriverWait(self,patient).until(filter_func)
+        return rv
     def close(self):
         self.driver.quit()
     def __del__(self):

@@ -26,6 +26,8 @@ import server_setting as SS
 HELPER FUNCTIONS
 CONVERSION BETWEEN LIST AND QUEUE
 '''
+# GLOBAL VARIABLE
+backer_number = 0
 
 # HELPERS =====
 def list_to_queue(list_data):
@@ -56,6 +58,17 @@ def facebook_expected_condition(pb):
     if len(eles) > 0:
         rv = len(eles[0].text) > 0
     return eles[0]
+def backer_scroll_expected_condition(pb):
+    global backer_number
+    rv = False
+    page = pb.get_page_source()
+    soup = BS(page,'html.parser')
+    eles = soup.select("div.NS_backers__backing_row")
+    new_size = len(eles)
+    if backer_number < new_size:
+        backer_number = new_size
+        rv = True
+    return rv
 # PROGRAM STARTS =====
 class ImageDownloader(Thread):
     '''
@@ -198,8 +211,9 @@ class KickstarterPageAnalyzer(Thread):
         """
 |  project page
         """
-        self.pb.goto(url)
-        time.sleep(SS.READ_LAG_TOLERANCE)
+        self.pb.goto(url,filter_func = facebook_expected_condition)
+        # precondition: facebook_expected_condition
+        #time.sleep(SS.READ_LAG_TOLERANCE)
         if not self.quietly:
             sys.stdout.write("OK\n")
             sys.stdout.flush()
@@ -342,9 +356,11 @@ class KickstarterPageAnalyzer(Thread):
                 pass
         self.risks = rv        
         # Facebook
-        fb_cnt = WebDriverWait(pb,60).until(facebook_expected_condition)
         try:
-            facebook_count = int(fb_cnt.text.strip().replace(",",""))
+            frame = soup.select("li.facebook.mr2 .count")
+            if len(frame) > 0:
+                fb_cnt = frame[0].text.strip()
+            facebook_count = int(fb_cnt.replace(",",""))
             if not self.quietly:
                 sys.stdout.write(".fb.")
                 sys.stdout.flush()
@@ -384,32 +400,23 @@ class KickstarterPageAnalyzer(Thread):
         
         backer_url = self.url+"/backers"
         pb.goto(backer_url)
-        time.sleep(SS.READ_LAG_TOLERANCE)
-        page = 1
-        # measure current backers
         p = pb.get_page_source()
         s = BS(p,'html.parser')
         frame = s.select("div.NS_backers__backing_row .meta a")
-        prevc = len(frame)
-        # init
-        nowc = 0
-        # pagination
-        while 1:
-            pb.scroll_down()
-            # measure current backers
-            p = pb.get_page_source()
-            s = BS(p,'html.parser')
-            frame = s.select("div.NS_backers__backing_row .meta a")
-            nowc = len(frame)
-            if not self.quietly:
-                sys.stdout.write("b")
-                sys.stdout.flush()
-            if nowc > prevc:
-                prevc = nowc
-            else:
-                break
+        if len(frame) > 50:
+            while 1: #pagination
+                pb.scroll_down(filter_func = backer_scroll_expected_condition)
+                # measure current backers
+                p = pb.get_page_source()
+                s = BS(p,'html.parser')
+                frame = s.select("div.NS_backers__backing_row .meta a")
+                nowc = len(frame)
+                if not self.quietly:
+                    sys.stdout.write("b")
+                    sys.stdout.flush()
+                if nowc == 0 or (nowc % 50) != 0:
+                    break
         #get backers
-        p = pb.get_page_source()
         s = BS(p,'html.parser')
         frame = s.select("div.NS_backers__backing_row .meta a")
         backers_append = self.backers.append
