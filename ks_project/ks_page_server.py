@@ -470,7 +470,7 @@ class KickstarterPageAnalyzer(Thread):
                 ts_id, project_id, profile_url, backer_slug,backing_hist)
                 VALUES (?,?,?,?,?);
         """
-        con = sqlite3.connect(self.dbname)
+        con = sqlite3.connect(self.dbname, timeout=60)
         cur = con.cursor()
         cur.execute(sql_create_table1)
         con.commit()
@@ -495,7 +495,7 @@ class KickstarterPageAnalyzer(Thread):
         if not self.quietly:
             sys.stdout.write(".[%03d:DB init]."%self.my_id)
             sys.stdout.flush()
-        con = sqlite3.connect(self.dbname)
+        con = sqlite3.connect(self.dbname, timeout=60)
         cur = con.cursor()
         cur.execute(self.sql_insert1,(
             self.ts_id,self.project_id,
