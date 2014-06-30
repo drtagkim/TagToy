@@ -9,6 +9,7 @@ from threading import Thread, current_thread
 
 import re, sys, time, sqlite3, socket, os, Queue
 import requests # $ pip install requests
+import mysql.connector
 import server_setting as SS
 
 class KickstarterProjectCollectorJson(Thread): # multithreading
@@ -180,13 +181,130 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
             sys.stdout.flush()                  
             if breaker:
                 break
-    def export_sqlite(self,db_name):
+    def export_mysql(self):
+        sql_create_static = """
+        CREATE TABLE IF NOT EXISTS `project_benchmark` (
+            `project_id` int(11) NOT NULL,
+            `project_name` varchar(1000) DEFAULT NULL,
+            `project_slug` varchar(400) DEFAULT NULL,
+            `country` varchar(100) DEFAULT NULL,
+            `created_at_unix` int(11) DEFAULT NULL,
+            `created_at_str` varchar(100) DEFAULT NULL,
+            `project_url` varchar(1000) DEFAULT NULL,
+            `desc_` mediumtext,
+            `photo` varchar(2000) DEFAULT NULL,
+            `category_parent` int(11) DEFAULT NULL,
+            `category_name` varchar(255) DEFAULT NULL,
+            `category_id` int(11) DEFAULT NULL,
+            `launched_at_unix` int(11) DEFAULT NULL,
+            `launched_at_str` varchar(100) DEFAULT NULL,
+            `goal` float DEFAULT NULL,
+            `currency` varchar(10) DEFAULT NULL,
+            `backers` int(11) DEFAULT NULL,
+            `pledged` float DEFAULT NULL,
+            `state` varchar(50) DEFAULT NULL,
+            `currently` int(11) DEFAULT NULL,
+            `state_changed_unix` int(11) DEFAULT NULL,
+            `state_changed_str` varchar(100) DEFAULT NULL,
+            `deadline_unix` int(11) DEFAULT NULL,
+            `deadline_str` varchar(100) DEFAULT NULL,
+            `creator_id` int(11) DEFAULT NULL,
+            `creator_url_slug` varchar(400) DEFAULT NULL,
+            `creator_name` varchar(400) DEFAULT NULL,
+            `creator_url_api` varchar(1000) DEFAULT NULL,
+            `creator_url_web` varchar(1000) DEFAULT NULL,
+            `location_country` varchar(200) DEFAULT NULL,
+            `location_name` varchar(200) DEFAULT NULL,
+            `location_slug` varchar(200) DEFAULT NULL,
+            `location_nearby_api` varchar(1000) DEFAULT NULL,
+            `location_nearby_web1` varchar(1000) DEFAULT NULL,
+            `location_nearby_web2` varchar(1000) DEFAULT NULL,
+            PRIMARY KEY (`project_id`)
+          ) ENGINE=MyISAM DEFAULT CHARSET=utf8
+          PARTITION BY KEY ()
+          PARTITIONS 5
+        """
+        sql_create_dynamic = """
+        CREATE TABLE IF NOT EXISTS project_history (
+            `ts_id` VARCHAR(100),
+            `project_id` INT,
+            `backers` INT,
+            `pledged` FLOAT,
+            `state` TEXT,
+            `currently` INT,
+            `state_changed_unix` INT,
+            `state_changed_str` VARCHAR(100),
+            `deadline_unix` INT,
+            `deadline_str` VARCHAR(100),
+            PRIMARY KEY(`ts_id`,`project_id`)
+            ) ENGINE=MyISAM CHARSET=utf8
+            PARTITION BY KEY ()
+            PARTITIONS 10
+        """
+        sql_create_project_search = """
+        CREATE TABLE IF NOT EXISTS project_search_temp (
+            `ts_id` VARCHAR(100),
+            `project_id` INT,
+            `project_url` VARCHAR(1000),
+            PRIMARY KEY(`ts_id`,`project_id`)
+            ) ENGINE=MyISAM CHARSET=utf8
+        """
+        sql_insert_static = """
+            REPLACE INTO project_benchmark (
+            project_id,project_name,project_slug,country,created_at_unix,created_at_str,
+                        project_url,`desc_`,photo,category_parent,category_name,category_id,launched_at_unix,launched_at_str,
+                        goal,currency,backers,pledged,state,currently,state_changed_unix,
+                        state_changed_str,deadline_unix,deadline_str,creator_id,creator_url_slug,
+                        creator_name,creator_url_api,creator_url_web,location_country,
+                        location_name,location_slug,location_nearby_api,location_nearby_web1,location_nearby_web2
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        sql_insert_dynamic = """
+            REPLACE INTO project_history (
+                ts_id,project_id,backers,pledged,state,currently,
+                state_changed_unix,state_changed_str,deadline_unix,deadline_str
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        sql_insert_project_search = """
+            REPLACE INTO project_search_temp (
+                ts_id, project_id, project_url
+            ) VALUES (%s,%s,%s)
+        """
+        con = mysql.connector.connect(user=SS.USER,
+                                      password=SS.PASSWORD,
+                                      host=SS.HOST,
+                                      database=SS.DATABASE,
+                                      connection_timeout=SS.LOCK_TIMEOUT)
+        cur = con.cursor()
+        if SS.CREATE_SCHEMA:
+            cur.execute(sql_create_static)
+            con.commit()
+            cur.execute(sql_create_dynamic)
+            con.commit()
+            cur.execute(sql_create_project_search)
+            con.commit()
+        try:
+            cur.executemany(sql_insert_static,self.rv_static)
+            con.commit()
+            cur.executemany(sql_insert_dynamic,self.rv_dynamic)
+            con.commit()
+            cur.executemany(sql_insert_project_search,self.rv_search_temp)
+            con.commit()
+            cur.close()
+            con.close()
+        except:
+            cur.close()
+            con.close()
+            sys.stdout.write("...MYSQL ERROR!...")
+            sys.stdout.flush()
+            self.running = False
+    def export_sqlite(self):
         """
 |  TEST
         """
-        con = sqlite3.connect(db_name)
+        
         #create schema
-        sql_create_staic = """
+        sql_create_static = """
             CREATE TABLE IF NOT EXISTS project_benchmark (project_id NUMBER,
                 project_name TEXT,
                 project_slug TEXT,
@@ -222,7 +340,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 location_nearby_api TEXT,
                 location_nearby_web1 TEXT,
                 location_nearby_web2 TEXT,
-                CONSTRAINT update_rule UNIQUE(project_id) ON CONFLICT REPLACE);
+                CONSTRAINT update_rule UNIQUE(project_id) ON CONFLICT REPLACE)
         """
         sql_create_dynamic = """
             CREATE TABLE IF NOT EXISTS project_history (
@@ -230,20 +348,20 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 project_id NUMBER,
                 backers NUMBER,
                 pledged NUMBER,
-                state NUMBER,
+                state TEXT,
                 currently NUMBER,
                 state_changed_unix NUMBER,
                 state_changed_str TEXT,
                 deadline_unix NUMBER,
                 deadline_str TEXT,
-                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE);
+                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE)
         """
         sql_create_project_search = """
             CREATE TABLE IF NOT EXISTS project_search_temp (
                 ts_id TEXT,
                 project_id NUMBER,
                 project_url TEXT,
-                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE);
+                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE)
         """
         sql_insert_static = """
             INSERT INTO project_benchmark (
@@ -253,36 +371,43 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                         state_changed_str,deadline_unix,deadline_str,creator_id,creator_url_slug,
                         creator_name,creator_url_api,creator_url_web,location_country,
                         location_name,location_slug,location_nearby_api,location_nearby_web1,location_nearby_web2
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """
         sql_insert_dynamic = """
             INSERT INTO project_history (
                 ts_id,project_id,backers,pledged,state,currently,
                 state_changed_unix,state_changed_str,deadline_unix,deadline_str
-            ) VALUES (?,?,?,?,?,?,?,?,?,?);
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
         """
         sql_insert_project_search = """
             INSERT INTO project_search_temp (
                 ts_id, project_id, project_url
-            ) VALUES (?,?,?);
+            ) VALUES (?,?,?)
         """
+        con = sqlite3.connect(SS.DATABASE_NAME,timeout = SS.LOCK_TIMEOUT)
         cur = con.cursor()
-        cur.execute(sql_create_staic)
-        con.commit()
-        cur.execute(sql_create_dynamic)
-        con.commit()
-        cur.execute(sql_create_project_search)
-        con.commit()
-        cur.executemany(sql_insert_static,self.rv_static)
-        con.commit()
-        cur.executemany(sql_insert_dynamic,self.rv_dynamic)
-        con.commit()
-        cur.executemany(sql_insert_project_search,self.rv_search_temp)
-        con.commit()
-        cur.close()
-        con.close()
-    def stop(self):
-        self.running = False
+        if SS.CREATE_SCHEMA:
+            cur.execute(sql_create_static)
+            con.commit()
+            cur.execute(sql_create_dynamic)
+            con.commit()
+            cur.execute(sql_create_project_search)
+            con.commit()
+        try:
+            cur.executemany(sql_insert_static,self.rv_static)
+            con.commit()
+            cur.executemany(sql_insert_dynamic,self.rv_dynamic)
+            con.commit()
+            cur.executemany(sql_insert_project_search,self.rv_search_temp)
+            con.commit()
+            cur.close()
+            con.close()
+        except:
+            cur.close()
+            con.close()
+            sys.stdout.write("...SQLITE ERROR!...")
+            sys.stdout.flush()
+            self.running = False
     def run(self):
         # REFERENCE
         inque = self.inque
@@ -294,11 +419,15 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 sys.stdout.write("[%03d]>=="%self.my_id)
                 sys.stdout.flush()
                 self.scrap(category_id)
-                self.export_sqlite(SS.DATABASE_NAME)
+                if SS.SQLITE_MYSQL == "sqlite":
+                    self.export_sqlite()
+                else:
+                    self.export_mysql()
                 inque.task_done()
                 sys.stdout.write("[%03d]==<"%self.my_id)
                 sys.stdout.flush()
             except Queue.Empty:
+                reload(SS)
                 if not waiting_noticed:
                     sys.stdout.write(" (^.^) ")
                     sys.stdout.flush()

@@ -28,40 +28,55 @@ def call_log():
     sys.stdout.flush()
 def call_page():
     host = socket.gethostname()
-    sys.stdout.write(host+"\n")
     sys.stdout.write("KICKSTARTER PAGE LOG =======\n")
     sys.stdout.write("[%s]\n"%datetime.now().__str__())
     sys.stdout.flush()    
     #
-    con = sqlite3.connect(SS.DATABASE_NAME)
     sql_read_project_search = """
-        SELECT ts_id,project_id,project_url FROM project_serach_temp;
+        SELECT ts_id,project_id,project_url FROM project_search_temp
     """
-    cur = con.cursor()
-    cur.execute(sql_read_project_search)
-    rows = cur.fetchall()
-    for row in rows:
-        client = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        client.connect((host,SS.PROJECT_PAGE_PORT))
-        client.send(repr(row))
-        client.shutdown(socket.SHUT_RDWR) #disconnet
-        client.close() #stream socket out
-    sql_clear_search = """
-        DELETE FROM project_search_temp;
-    """
-    cur.execute(sql_clear_search)
-    con.commit()
-    cur.close()
-    con.close()
-    sys.stdout.write("PAGE LOG SERVER CALL COMPLETE\n\n")
+    if SS.SQLITE_MYSQL == 'sqlite':
+        con = sqlite3.connect(SS.DATABASE_NAME, timeout = SS.LOCK_TIMEOUT)
+        cur = con.cursor()
+        cur.execute(sql_read_project_search)
+        rows = cur.fetchall()
+        for k,row in enumerate(rows):
+            client = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            client.connect((host,SS.PROJECT_PAGE_PORT))
+            client.send(repr(row))
+            client.shutdown(socket.SHUT_RDWR) #disconnet
+            client.close() #stream socket out
+            sys.stdout.write(".%d."%k)
+            sys.stdout.flush()
+            time.sleep(0.5)
+    else:
+        con = mysql.connector.connect(user=SS.USER,
+                                      password=SS.PASSWORD,
+                                      host=SS.HOST,
+                                      database=SS.DATABASE,
+                                      connection_timeout = SS.LOCK_TIMEOUT)
+        cur = con.cursor()
+        cur.execute(sql_read_project_search)
+        rows = cur.fetchall()
+        for k,row in enumerate(rows):
+            client = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            client.connect((host,SS.PROJECT_PAGE_PORT))
+            client.send(repr(row))
+            client.shutdown(socket.SHUT_RDWR) #disconnet
+            client.close() #stream socket out
+            print k
+            time.sleep(0.1)
+    sys.stdout.write("\n\nKICKSTARTER PAGE CALL COMPLETE ====\n")
     sys.stdout.flush()
 def vacuum_database():
-    con = sqlite3.connect(SS.DATABASE_NAME)
-    cur = con.cursor()
-    cur.execute("VACUUM")
-    con.commit()
-    cur.close()
-    con.close()
+    if SS.SQLITE_MYSQL == 'sqlite':
+        con = sqlite3.connect(SS.DATABASE_NAME, timeout = SS.LOCK_TIMEOUT)
+        cur = con.cursor()
+        cur.execute("VACUUM")
+        con.commit()
+        cur.close()
+        con.close()
+        sys.stdout.write("\n\nSQLITE VACUUM COMPLETE ====\n")
     
 if __name__ == "__main__":
     sched = Scheduler()

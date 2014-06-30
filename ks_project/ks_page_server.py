@@ -10,7 +10,7 @@ from hsaudiotag import mp4 # $ pip install hsaudiotag
 from StringIO import StringIO
 from threading import Thread,current_thread
 from selenium.webdriver.support.ui import WebDriverWait
-
+import mysql.connector
 import zlib, re, time, sys, Queue, sqlite3,cPickle
 import socket, os
 import requests # $ pip install requests
@@ -192,11 +192,16 @@ class KickstarterPageAnalyzer(Thread):
                 sys.stdout.flush()                
                 self.read(self.ts_id, self.project_id, self.url) # for clear representation
                 self.analyze()
-                self.prep_database()
-                self.write_database()
+                if SS.SQLITE_MYSQL == 'sqlite':
+                    self.prep_database()
+                    self.write_database()
+                else:
+                    self.prep_database_mysql()
+                    self.write_database_mysql()
                 self.clear()
                 inque.task_done()
             except Queue.Empty:
+                reload(SS)
                 if not waiting_noticed:
                     sys.stdout.write(" (^.^) ")
                     sys.stdout.flush()
@@ -423,6 +428,72 @@ class KickstarterPageAnalyzer(Thread):
                     backers_append((profile_url,backer_name,backing_hist))
         except:
             pass
+    def prep_database_mysql(self):
+        sql_create_table1 = """
+                    CREATE TABLE IF NOT EXISTS project_benchmark_sub (
+                ts_id VARCHAR(100),
+                project_id INT,
+                project_reward_number INT,
+                project_reward_mim_money_list VARCHAR(1000),
+                project_reward_description_total_length INT,
+                project_reward_description_str MEDIUMTEXT,
+                image_count INT,
+                image_fnames_list MEDIUMTEXT,
+                description_length INT,
+                description_str MEDIUMTEXT,
+                risks_length INT,
+                risks_str MEDIUMTEXT,
+                video_has SMALLINT,
+                video_length MEDIUMINT,
+                video_fname VARCHAR(1000),
+                video_has_high SMALLINT,
+                video_has_base SMALLINT,
+                facebook_like INT,
+                PRIMARY KEY(ts_id,project_id)
+) ENGINE = MyISAM CHARSET=utf8
+PARTITION BY KEY()
+PARTITIONS 10
+        """
+        sql_create_table2 = """
+            CREATE TABLE IF NOT EXISTS int_project_backer (
+                ts_id VARCHAR(100),
+                project_id INT,
+                profile_url VARCHAR(1000),
+                backer_slug VARCHAR(400),
+                backing_hist INT,
+                PRIMARY KEY(ts_id,project_id)
+                    ) ENGINE=MyISAM CHARSET=utf8
+                    PARTITION BY KEY()
+                    PARTITIONS 10
+        """
+        self.sql_insert1 = """
+            REPLACE INTO project_benchmark_sub (
+                ts_id, project_id, project_reward_number,
+                project_reward_mim_money_list, project_reward_description_total_length,
+                project_reward_description_str, image_count, image_fnames_list, description_length, description_str, risks_length, risks_str, video_has, 
+                video_length, video_fname, video_has_high, video_has_base, facebook_like
+                ) VALUES (
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+            )
+        """
+        self.sql_insert2 = """
+            REPLACE INTO int_project_backer (
+                ts_id, project_id, profile_url, backer_slug,backing_hist)
+                VALUES (%s,%s,%s,%s,%s)
+        """
+        if SS.CREATE_SCHEMA:
+            con = mysql.connector.connect(user=SS.USER,
+                                          password=SS.PASSWORD,
+                                          host=SS.HOST,
+                                          database=SS.DATABASE,
+                                          connection_timeout=SS.LOCK_TIMEOUT)            
+            cur = con.cursor()
+            cur.execute(sql_create_table1)
+            con.commit()
+            cur.execute(sql_create_table2)
+            con.commit()
+            cur.close()
+            con.close()
     def prep_database(self):
         sql_create_table1 = """
             CREATE TABLE IF NOT EXISTS project_benchmark_sub (
@@ -444,7 +515,7 @@ class KickstarterPageAnalyzer(Thread):
                 video_has_high NUMBER,
                 video_has_base NUMBER,
                 facebook_like NUMBER,
-                CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT REPLACE);
+                CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT REPLACE)
         """
         sql_create_table2 = """
             CREATE TABLE IF NOT EXISTS int_project_backer (
@@ -453,7 +524,7 @@ class KickstarterPageAnalyzer(Thread):
                 profile_url TEXT,
                 backer_slug TEXT,
                 backing_hist NUMBER,
-                CONSTRAINT update_rule UNIQUE (ts_id, project_id, backer_slug) ON CONFLICT REPLACE);
+                CONSTRAINT update_rule UNIQUE (ts_id, project_id, backer_slug) ON CONFLICT REPLACE)
         """
         self.sql_insert1 = """
             INSERT INTO project_benchmark_sub (
@@ -463,21 +534,68 @@ class KickstarterPageAnalyzer(Thread):
                 video_length, video_fname, video_has_high, video_has_base, facebook_like
                 ) VALUES (
                 ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-            );
+            )
         """
         self.sql_insert2 = """
             INSERT INTO int_project_backer (
                 ts_id, project_id, profile_url, backer_slug,backing_hist)
-                VALUES (?,?,?,?,?);
+                VALUES (?,?,?,?,?)
         """
-        con = sqlite3.connect(self.dbname, timeout=60)
+        if SS.CREATE_SCHEMA:
+            con = sqlite3.connect(self.dbname, timeout = SS.LOCK_TIMEOUT)
+            cur = con.cursor()
+            cur.execute(sql_create_table1)
+            con.commit()
+            cur.execute(sql_create_table2)
+            con.commit()
+            cur.close()
+            con.close()
+    def write_database_mysql(self):
+        project_reward_number = len(self.projects_reward_result)
+        project_reward_mim_money_list = repr([item[0] for item in self.projects_reward_result])
+        project_reward_description_total_length = 0
+        project_reward_desc_temp = []
+        for item in self.projects_reward_result:
+            project_reward_description_total_length += len(item[2])
+            project_reward_desc_temp.append(item[2])
+        project_reward_description_str = " ".join(project_reward_desc_temp)
+        image_count = len(self.image_fnames)
+        image_fnames_list = repr(self.image_fnames)
+        description_length = len(self.full_description)
+        risks_length = len(self.risks)
+        # insert first
+        if not self.quietly:
+            sys.stdout.write(".[%03d:DB init]."%self.my_id)
+            sys.stdout.flush()
+        con = mysql.connector.connect(user=SS.USER,
+                              password=SS.PASSWORD,
+                              host=SS.HOST,
+                              database=SS.DATABASE,
+                              connection_timeout=SS.LOCK_TIMEOUT)
         cur = con.cursor()
-        cur.execute(sql_create_table1)
+        cur.execute(self.sql_insert1,(
+            self.ts_id,self.project_id,
+            project_reward_number,project_reward_mim_money_list,
+            project_reward_description_total_length,
+            repr(zlib.compress(repr(project_reward_description_str))),
+            image_count,image_fnames_list,
+            description_length,
+            repr(zlib.compress(repr(self.full_description))),
+            risks_length,
+            repr(zlib.compress(repr(self.risks))),
+            self.video_has,self.video_length,self.video_fname,self.video_has_high,self.video_has_base,self.facebook_like,
+            ))
         con.commit()
-        cur.execute(sql_create_table2)
+        backer_input_list = []
+        for backer in self.backers:
+            backer_input_list.append((self.ts_id, self.project_id, backer[0], backer[1], backer[2]))
+        cur.executemany(self.sql_insert2,backer_input_list)
         con.commit()
         cur.close()
         con.close()
+        if not self.quietly:
+            sys.stdout.write(".[%03d:complete]."%self.my_id)
+            sys.stdout.flush()
     def write_database(self):
         project_reward_number = len(self.projects_reward_result)
         project_reward_mim_money_list = repr([item[0] for item in self.projects_reward_result])
@@ -519,8 +637,7 @@ class KickstarterPageAnalyzer(Thread):
         con.close()
         if not self.quietly:
             sys.stdout.write(".[%03d:complete]."%self.my_id)
-            sys.stdout.flush()
-            
+            sys.stdout.flush()            
 # SERVER
 
 if __name__ == "__main__":

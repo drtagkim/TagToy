@@ -4,10 +4,21 @@ AUTHOR: DRTAGKIM
 2014
 '''
 # GENERAL SETTING ===============================
-DATABASE_NAME = "sample.db" #SQLite3 database name (main)
-QUIETLY = False
 HAS_IMAGE = False
+QUIETLY = False
 
+# DATABASE SETTING ==============================
+DATABASE_NAME = "sample.db" #SQLite3 database name (main)
+CREATE_SCHEMA = False
+SQLITE_MYSQL = "sqlite" # (sqlite / mysql)
+LOCK_TIMEOUT = 120 #seconds
+# MYSQL SETTING =================================
+HOST = "localhost"
+DATABASE = "" # database name
+USER = ""
+PASSWORD = ""
+
+# SCHEDULE ======================================
 PROJECT_LOG_START_HOUR = '0' # project log starts at
 PROJECT_LOG_START_MIN = '0' #0-59
 PROJECT_LOG_START_SEC = '0' #0-59
@@ -28,6 +39,7 @@ PAGE_REQUEST_TRIAL = 10 # how many calls if it fails?
 PROJECT_LOG_PORT = 10001
 PROJECT_LOG_SERVER_THREAD_POOL = 13
 CATEGORIES = ["1","2","3","4","5","6","7","8","9","10","11","12","13"]
+
 # PROJECT_PAGE_SERVER SETTING ===================
 PROJECT_PAGE_PORT = 10002
 PROJECT_PAGE_SERVER_THREAD_POOL = 10
