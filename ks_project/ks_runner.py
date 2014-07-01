@@ -7,7 +7,7 @@ from apscheduler.scheduler import Scheduler
 # sudo pip install apscheduler
 from datetime import datetime
 import sys,socket,sqlite3, logging
-
+import mysql.connector
 import server_setting as SS
 
 logging.basicConfig()
@@ -72,7 +72,20 @@ def vacuum_database():
     if SS.SQLITE_MYSQL == 'sqlite':
         con = sqlite3.connect(SS.DATABASE_NAME, timeout = SS.LOCK_TIMEOUT)
         cur = con.cursor()
+        cur.execute("DELETE FROM project_search_temp")
+        con.commit()
         cur.execute("VACUUM")
+        con.commit()
+        cur.close()
+        con.close()
+    else:
+        con = mysql.connector.connect(user=SS.USER,
+                                              password=SS.PASSWORD,
+                                              host=SS.HOST,
+                                              database=SS.DATABASE,
+                                              connection_timeout = SS.LOCK_TIMEOUT)
+        cur = con.cursor()
+        cur.execute("TRUNCATE project_search_temp")
         con.commit()
         cur.close()
         con.close()
