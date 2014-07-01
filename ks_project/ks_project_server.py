@@ -57,6 +57,8 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                     time.sleep(self.politeness * 10) # for ten minutes break
         assert len(rv) > 0, ""
         return rv
+    def stop(self):
+        self.running = False
     def scrap(self, category_id_input, time_lag = -1):
         """
 |  Main
