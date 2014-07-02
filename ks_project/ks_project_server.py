@@ -262,13 +262,13 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
         sql_insert_dynamic = """
-            REPLACE INTO project_history (
+            INSERT IGNORE INTO project_history (
                 ts_id,project_id,backers,pledged,state,currently,
                 state_changed_unix,state_changed_str,deadline_unix,deadline_str
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
         sql_insert_project_search = """
-            REPLACE INTO project_search_temp (
+            INSERT IGNORE INTO project_search_temp (
                 ts_id, project_id, project_url
             ) VALUES (%s,%s,%s)
         """
@@ -356,14 +356,14 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 state_changed_str TEXT,
                 deadline_unix NUMBER,
                 deadline_str TEXT,
-                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE)
+                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT IGNORE)
         """
         sql_create_project_search = """
             CREATE TABLE IF NOT EXISTS project_search_temp (
                 ts_id TEXT,
                 project_id NUMBER,
                 project_url TEXT,
-                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT REPLACE)
+                CONSTRAINT update_rule UNIQUE(ts_id,project_id) ON CONFLICT IGNORE)
         """
         sql_insert_static = """
             INSERT INTO project_benchmark (

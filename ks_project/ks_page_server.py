@@ -467,7 +467,7 @@ PARTITIONS 10
                     PARTITIONS 10
         """
         self.sql_insert1 = """
-            REPLACE INTO project_benchmark_sub (
+            INSERT IGNORE INTO project_benchmark_sub (
                 ts_id, project_id, project_reward_number,
                 project_reward_mim_money_list, project_reward_description_total_length,
                 project_reward_description_str, image_count, image_fnames_list, description_length, description_str, risks_length, risks_str, video_has, 
@@ -477,7 +477,7 @@ PARTITIONS 10
             )
         """
         self.sql_insert2 = """
-            REPLACE INTO int_project_backer (
+            INSERT IGNORE INTO int_project_backer (
                 ts_id, project_id, profile_url, backer_slug,backing_hist)
                 VALUES (%s,%s,%s,%s,%s)
         """
@@ -515,7 +515,7 @@ PARTITIONS 10
                 video_has_high NUMBER,
                 video_has_base NUMBER,
                 facebook_like NUMBER,
-                CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT REPLACE)
+                CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT IGNORE)
         """
         sql_create_table2 = """
             CREATE TABLE IF NOT EXISTS int_project_backer (
@@ -524,7 +524,7 @@ PARTITIONS 10
                 profile_url TEXT,
                 backer_slug TEXT,
                 backing_hist NUMBER,
-                CONSTRAINT update_rule UNIQUE (ts_id, project_id, backer_slug) ON CONFLICT REPLACE)
+                CONSTRAINT update_rule UNIQUE (ts_id, project_id, backer_slug) ON CONFLICT IGNORE)
         """
         self.sql_insert1 = """
             INSERT INTO project_benchmark_sub (
