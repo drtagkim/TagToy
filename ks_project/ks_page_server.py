@@ -190,14 +190,14 @@ class KickstarterPageAnalyzer(Thread):
                 waiting_noticed = False
                 sys.stdout.write(".ready.")
                 sys.stdout.flush()                
-                self.read(self.ts_id, self.project_id, self.url) # for clear representation
-                self.analyze()
-                if SS.SQLITE_MYSQL == 'sqlite':
-                    self.prep_database()
-                    self.write_database()
-                else:
-                    self.prep_database_mysql()
-                    self.write_database_mysql()
+                if self.read(self.ts_id, self.project_id, self.url): # for clear representation
+                    self.analyze()
+                    if SS.SQLITE_MYSQL == 'sqlite':
+                        self.prep_database()
+                        self.write_database()
+                    else:
+                        self.prep_database_mysql()
+                        self.write_database_mysql()
                 self.clear()
                 inque.task_done()
             except Queue.Empty:
@@ -210,13 +210,17 @@ class KickstarterPageAnalyzer(Thread):
         """
 |  project page
         """
-        self.pb.goto(url,filter_func = facebook_expected_condition)
+        rv = True
+        try:
+            self.pb.goto(url,filter_func = facebook_expected_condition)
+        except:
+            rv = False
         # precondition: facebook_expected_condition
         #time.sleep(SS.READ_LAG_TOLERANCE)
         if not self.quietly:
             sys.stdout.write(".[%03d:read]."%self.my_id)
             sys.stdout.flush()
-
+        return rv
     def analyze(self):
         pb = self.pb
         page = pb.get_page_source()
