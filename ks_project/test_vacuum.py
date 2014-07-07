@@ -20,7 +20,7 @@ def vacuum_database():
                                               database=SS.DATABASE,
                                               connection_timeout = SS.LOCK_TIMEOUT)
         cur = con.cursor()
-        cur.execute("TRUNCATE project_search_temp")
+        cur.execute("TRUNCATE TABLE project_search_temp")
         con.commit()
         cur.close()
         con.close()
