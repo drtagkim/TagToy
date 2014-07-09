@@ -192,11 +192,11 @@ class KickstarterPageAnalyzer(Thread):
                     sys.stdout.flush()
                     waiting_noticed = True
     def check_error_log(self):
-        sql = "SELECT ts_id,project_id FROM error_log"
         if SS.SQLITE_MYSQL == "sqlite":
+            sql = "SELECT ts_id,project_id FROM error_log WHERE ts_id = ? AND project_id = ?"
             con = sqlite3.connect(self.dbname, timeout=60)
             cur = con.cursor()
-            cur.execute(sql)
+            cur.execute(sql,(self.ts_id,self.project_id))
             rows = cur.fetchall()
             checker = len(rows) > 0
             cur.close()
@@ -208,13 +208,14 @@ class KickstarterPageAnalyzer(Thread):
                 cur.close()
             con.close()
         else:
+            sql = "SELECT ts_id,project_id FROM error_log WHERE ts_id = %s AND project_id = %s"
             con = mysql.connector.connect(user=SS.USER,
                                 password=SS.PASSWORD,
                                 host=SS.HOST,
                                 database=SS.DATABASE,
                                 connection_timeout=SS.LOCK_TIMEOUT)
             cur = con.cursor()
-            cur.execute(sql)
+            cur.execute(sql,(self.ts_id,self.project_id))
             rows = cur.fetchall()
             checker = len(rows) > 0
             cur.close()
