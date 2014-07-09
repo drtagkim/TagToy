@@ -10,26 +10,31 @@ QUIETLY = False
 # DATABASE SETTING ==============================
 DATABASE_NAME = "sample.db" #SQLite3 database name (main)
 CREATE_SCHEMA = False
-SQLITE_MYSQL = "sqlite" # (sqlite / mysql)
+SQLITE_MYSQL = "mysql" # (sqlite / mysql)
 LOCK_TIMEOUT = 120 #seconds
 # MYSQL SETTING =================================
 HOST = "localhost"
-DATABASE = "" # database name
-USER = ""
+DATABASE = "kickstarter" # database name
+USER = "kimtk"
 PASSWORD = ""
 
 # SCHEDULE ======================================
 PROJECT_LOG_START_HOUR = '0' # project log starts at
 PROJECT_LOG_START_MIN = '0' #0-59
-PROJECT_LOG_START_SEC = '0' #0-59
+PROJECT_LOG_START_SEC = '59' #0-59
 
-PROJECT_PAGE_START_HOUR = '10'
+PROJECT_PAGE_START_HOUR = '3'
 PROJECT_PAGE_START_MIN = '0'
-PROJECT_PAGE_START_SEC = '0'
+PROJECT_PAGE_START_SEC = '59'
 
-VACUUM_DATABASE_HOUR = '23'
+RECOVER_ERROR_HOUR = '9'
+RECOVER_ERROR_MIN = '0'
+RECOVER_ERROR_SEC = '59'
+
+VACUUM_DATABASE_HOUR = '15'
 VACUUM_DATABASE_MIN = '0'
-VACUUM_DATABASE_SEC = '0'
+VACUUM_DATABASE_SEC = '59'
+
 
 # PROJECT_LOG_SERVER SETTING ====================
 # Data collection range. If True, full collection (from the beginning); othersie, False
@@ -42,5 +47,5 @@ CATEGORIES = ["1","2","3","4","5","6","7","8","9","10","11","12","13"]
 
 # PROJECT_PAGE_SERVER SETTING ===================
 PROJECT_PAGE_PORT = 10002
-PROJECT_PAGE_SERVER_THREAD_POOL = 10
+PROJECT_PAGE_SERVER_THREAD_POOL = 20
 READ_LAG_TOLERANCE = 0 # second

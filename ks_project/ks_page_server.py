@@ -110,28 +110,6 @@ class ImageDownloader(Thread):
                 pass
 
 class KickstarterPageAnalyzer(Thread):
-    """
-|  Page analyzer
-|  For example,
-|  >>> kpa = KickstarterPageAnalyzer()
-|  >>> ts_id = "2014/06/23"
-|  >>> project_id = 000000001
-|  >>> url = "https://www.kickstarter.com/projects/1311317428/a-limited-edition-cleverly-designed-leather-collec"
-|  >>> kpa.read(ts_id,project_id,url)
-|  >>> kpa.analyze()
-|
-|  # OPTIONS
-|  >>> kap = KickstarterPageAnalyzer(quietly = False, has_image = True)
-
-|  Backers
-|  Condition
-|  Full description
-|    Images
-|    Video
-|  Facebook
-
-    """
-
     def __init__(self, my_id,inque, dbname, quietly = True, has_image = False):
         """
 |  quietly (True/False): display progress log
@@ -166,6 +144,8 @@ class KickstarterPageAnalyzer(Thread):
         self.video_has = False
         self.page_compressed = None
         self.facebook_like = 0
+        #log
+        self.error = ""
     def terminate(self):
         if self.pb is not None: # precondition
             self.pb.close()
@@ -191,13 +171,18 @@ class KickstarterPageAnalyzer(Thread):
                 sys.stdout.write(".ready.")
                 sys.stdout.flush()                
                 if self.read(self.ts_id, self.project_id, self.url): # for clear representation
-                    self.analyze()
-                    if SS.SQLITE_MYSQL == 'sqlite':
-                        self.prep_database()
-                        self.write_database()
+                    if self.analyze():
+                        if SS.SQLITE_MYSQL == 'sqlite':
+                            self.prep_database()
+                            self.write_database()
+                        else:
+                            self.prep_database_mysql()
+                            self.write_database_mysql()
+                        self.check_error_log() # if successful, clean up error.
                     else:
-                        self.prep_database_mysql()
-                        self.write_database_mysql()
+                        self.write_error_log()
+                else:
+                    self.write_error_log()
                 self.clear()
                 inque.task_done()
             except Queue.Empty:
@@ -206,15 +191,74 @@ class KickstarterPageAnalyzer(Thread):
                     sys.stdout.write(" (^.^) ")
                     sys.stdout.flush()
                     waiting_noticed = True
+    def check_error_log(self):
+        sql = "SELECT ts_id,project_id FROM error_log"
+        if SS.SQLITE_MYSQL == "sqlite":
+            con = sqlite3.connect(self.dbname, timeout=60)
+            cur = con.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+            checker = len(rows) > 0
+            cur.close()
+            if checker:
+                cur = con.cursor()
+                sql_u = "INSERT INTO error_log (ts_id,project_id,project_url,error_msg,recover_trial) VALUES (?,?,?,?,?)"
+                cur.execute(sql_u,(self.ts_id,self.project_id,self.url,self.error,0))
+                con.commit()
+                cur.close()
+            con.close()
+        else:
+            con = mysql.connector.connect(user=SS.USER,
+                                password=SS.PASSWORD,
+                                host=SS.HOST,
+                                database=SS.DATABASE,
+                                connection_timeout=SS.LOCK_TIMEOUT)
+            cur = con.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+            checker = len(rows) > 0
+            cur.close()
+            if checker:
+                cur = con.cursor()
+                sql_u = "REPLACE INTO error_log (ts_id,project_id,project_url,error_msg,recover_trial) VALUES (%s,%s,%s,%s,%s)"
+                cur.execute(sql_u,(self.ts_id, self.project_id, self.url, self.error, 0))
+                cur.close()
+            con.close()
+    def write_error_log(self):
+        if SS.SQLITE_MYSQL == 'sqlite':
+            sql = "INSERT INTO error_log (ts_id,project_id,project_url,error_msg,recover_trial) VALUES (?,?,?,?,?)"
+            con = sqlite3.connect(self.dbname, timeout=60)
+            cur = con.cursor()
+            cur.execute(sql,(self.ts_id,self.project_id,self.url,self.error,1))
+            con.commit()
+            cur.close()
+            con.close()
+        else:
+            sql = "REPLACE INTO error_log (ts_id,project_id,project_url,error_msg,recover_trial) VALUES (%s,%s,%s,%s,%s)"
+            con = mysql.connector.connect(user=SS.USER,
+                              password=SS.PASSWORD,
+                              host=SS.HOST,
+                              database=SS.DATABASE,
+                              connection_timeout=SS.LOCK_TIMEOUT)
+            cur = con.cursor()
+            cur.execute(sql,(self.ts_id, self.project_id, self.url, self.error, 1))
+            con.commit()
+            cur.close()
+            con.close()
     def read(self, ts_id, project_id, url):
         """
 |  project page
         """
         rv = True
         try:
-            self.pb.goto(url,filter_func = facebook_expected_condition)
+            self.pb.goto(url,
+                         filter_func = facebook_expected_condition,
+                         filter_time_out = 180) # wait for three minutes
         except:
-            rv = False
+            try:
+                self.pb.goto(url)
+            except:
+                rv = False
         # precondition: facebook_expected_condition
         #time.sleep(SS.READ_LAG_TOLERANCE)
         if not self.quietly:
@@ -226,11 +270,20 @@ class KickstarterPageAnalyzer(Thread):
         page = pb.get_page_source()
         #page_compress = pb.get_page_source(remove_js = True) # no javascript
         # preconditions
-        assert page is not None and len(page) > 0, ""
+        if page == None or len(page) == 0:
+            self.error = "no page"
+            return False
         #self.page_compressed = zlib.compress(repr(page_compress))
         soup = BS(page,'html.parser')
+        
         # precondition
-        assert soup != None, "No Page!"
+        if soup == None:
+            self.error = "no parser"
+            return False
+        # check 404
+        if soup.title.text.find("looking for doesn't exist (404)") > 0:
+            self.error = "404"
+            return False
         #main page
         if not self.quietly:
             sys.stdout.write(".[%03d:analyze]."%self.my_id)
@@ -343,7 +396,7 @@ class KickstarterPageAnalyzer(Thread):
             try:
                 rv = rv.strip()
             except:
-                pass
+                rv = "error"
         self.full_description = rv        
         # collect risk
         frame = soup.select("#risks")
@@ -354,7 +407,7 @@ class KickstarterPageAnalyzer(Thread):
             try:
                 rv = rv.strip()
             except:
-                pass
+                rv = "error"
         self.risks = rv        
         # Facebook
         try:
@@ -389,21 +442,21 @@ class KickstarterPageAnalyzer(Thread):
         backer_url = self.url+"/backers"
         try:
             pb.goto(backer_url)
+            time.sleep(0.1) # wait for a while (safety)
             p = pb.get_page_source()
             s = BS(p,'html.parser')
             frame = s.select("div.NS_backers__backing_row .meta a")
             pb.temp_backer_number = 0 # temp variable
-            if len(frame) > 50: # has pagination
+            if len(frame) >= 50: # has pagination
                 while 1: # pagination control
-                    pb.scroll_down(filter_func = backer_scroll_expected_condition)
-                    # the first pagination is always true
-                    # measure current backers
+                    pb.scroll_down(filter_func = backer_scroll_expected_condition, 
+                                   filter_time_out = 180) # wait for three minutes
                     p = pb.get_page_source()
                     s = BS(p,'html.parser')
                     frame = s.select("div.NS_backers__backing_row .meta a")
                     nowc = len(frame) # get current number
                     if not self.quietly:
-                        sys.stdout.write(".[%03d:backer_page]."%self.my_id)
+                        sys.stdout.write(".[%03d:backer_page = %04d]."%(self.my_id,nowc))
                         sys.stdout.flush()
                     if nowc == 0 or (nowc % 50) != 0: #precondition, check end (from 51)
                         break # the final page does not contain 50 projects (less than that)
@@ -431,7 +484,9 @@ class KickstarterPageAnalyzer(Thread):
                         backing_hist = 0
                     backers_append((profile_url,backer_name,backing_hist))
         except:
-            pass
+            self.error = "backer"
+            return False
+        return True
     def prep_database_mysql(self):
         sql_create_table1 = """
                     CREATE TABLE IF NOT EXISTS project_benchmark_sub (
@@ -465,10 +520,20 @@ PARTITIONS 10
                 profile_url VARCHAR(1000),
                 backer_slug VARCHAR(400),
                 backing_hist INT,
-                PRIMARY KEY(ts_id,project_id)
+                PRIMARY KEY(ts_id,project_id,profile_url)
                     ) ENGINE=MyISAM CHARSET=utf8
                     PARTITION BY KEY()
                     PARTITIONS 10
+        """
+        sql_create_table_log = """
+            CREATE TABLE IF NOT EXISTS error_log (
+                ts_id VARCHAR(100),
+                project_id INT,
+                project_url VARCHAR(1000),
+                error_msg VARCHAR(50),
+                recover_trial INT,
+                PRIMARY KEY(ts_id,project_id)
+                ) ENGINE=MyISAM CHARSET=utf8
         """
         self.sql_insert1 = """
             INSERT IGNORE INTO project_benchmark_sub (
@@ -495,6 +560,8 @@ PARTITIONS 10
             cur.execute(sql_create_table1)
             con.commit()
             cur.execute(sql_create_table2)
+            con.commit()
+            cur.execute(sql_create_table_log)
             con.commit()
             cur.close()
             con.close()
@@ -528,7 +595,16 @@ PARTITIONS 10
                 profile_url TEXT,
                 backer_slug TEXT,
                 backing_hist NUMBER,
-                CONSTRAINT update_rule UNIQUE (ts_id, project_id, backer_slug) ON CONFLICT IGNORE)
+                CONSTRAINT update_rule UNIQUE (ts_id, project_id, profile_url) ON CONFLICT IGNORE)
+        """
+        sql_create_table_log = """
+            CREATE TABLE IF NOT EXISTS error_log (
+                ts_id TEXT,
+                project_id INT,
+                project_url TEXT,
+                error_msg TEXT,
+                recover_trial INT,
+                CONSTRAINT update_rule UNIQUE (ts_id,project_id) ON CONFLICT UPDATE)
         """
         self.sql_insert1 = """
             INSERT INTO project_benchmark_sub (
@@ -551,6 +627,8 @@ PARTITIONS 10
             cur.execute(sql_create_table1)
             con.commit()
             cur.execute(sql_create_table2)
+            con.commit()
+            cur.execute(sql_create_table_log)
             con.commit()
             cur.close()
             con.close()
