@@ -273,8 +273,10 @@ select.deselect_all()
         #    pass
     def scroll_down(self, filter_time_out = 30,filter_func = None):
         rv = False
-        script = "window.scrollTo(0, document.body.scrollHeight);"
-        self.execute_javascript(script)
+        script_0 = "window.scrollTo(0, 0);"
+        script_1 = "window.scrollTo(0, document.body.scrollHeight);"
+        self.execute_javascript(script_0)
+        self.execute_javascript(script_1)
         if filter_func != None:
             rv = WebDriverWait(self,filter_time_out).until(filter_func)
         return rv

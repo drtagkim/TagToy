@@ -60,6 +60,13 @@ def backer_scroll_expected_condition(pb):
         pb.temp_backer_number = new_size
         rv = True #stop
     return rv
+def backer_exist_expected_condition(pb):
+    rv = False
+    page = pb.get_page_source()
+    soup = BS(page,'html.parser')
+    frame = soup.select("div.NS_backers__backing_row .meta a")
+    rv = len(frame) > 0
+    return rv
 # PROGRAM STARTS =====
 class ImageDownloader(Thread):
     '''
@@ -257,9 +264,10 @@ class KickstarterPageAnalyzer(Thread):
                          filter_time_out = 180) # wait for three minutes
         except:
             try:
-                self.pb.goto(url)
+                self.pb.goto(url) # if there is no Facebook link... 
             except:
-                rv = False
+                self.error = "internet"
+                rv = False # otherwise
         # precondition: facebook_expected_condition
         #time.sleep(SS.READ_LAG_TOLERANCE)
         if not self.quietly:
@@ -425,68 +433,73 @@ class KickstarterPageAnalyzer(Thread):
                 sys.stdout.flush()            
             self.facebook_like = -1
         #backers =====================
-        eles = soup.select("#backers_count")
-        if len(eles) > 0:
-            t = eles[0].text
-            tt = re.findall(r"[0-9,]",t)
-            if len(tt) > 0:
-                ttt = tt[0].replace(",","")
-                n = int(ttt)
-                pn = n/40 + 2
-            else:
-                n = 0
-                pn = 0
+        backer_count_eles  = soup.select("div#backers_count")
+        if len(backer_count_eles) > 0:
+            backer_count = int(backer_count_eles[0]['data-backers-count'])
         else:
-            n = 0
-            pn = 0
-        self.pagination = pn
-        backer_url = self.url+"/backers"
-        try:
-            pb.goto(backer_url)
-            time.sleep(0.1) # wait for a while (safety)
-            p = pb.get_page_source()
-            s = BS(p,'html.parser')
-            frame = s.select("div.NS_backers__backing_row .meta a")
-            pb.temp_backer_number = 0 # temp variable
-            if len(frame) >= 50: # has pagination
-                while 1: # pagination control
-                    pb.scroll_down(filter_func = backer_scroll_expected_condition, 
-                                   filter_time_out = 180) # wait for three minutes
-                    p = pb.get_page_source()
-                    s = BS(p,'html.parser')
-                    frame = s.select("div.NS_backers__backing_row .meta a")
-                    nowc = len(frame) # get current number
-                    if not self.quietly:
-                        sys.stdout.write(".[%03d:backer_page = %04d]."%(self.my_id,nowc))
-                        sys.stdout.flush()
-                    if nowc == 0 or (nowc % 50) != 0: #precondition, check end (from 51)
-                        break # the final page does not contain 50 projects (less than that)
-            #get backers
-            s = BS(p,'html.parser')
-            frame = s.select("div.NS_backers__backing_row")
-            backers_append = self.backers.append
-            if len(frame) > 0:
-                for backer in frame:
-                    anchors = backer.select(".meta a")
-                    if len(anchors) > 0:
-                        profile_url = "%s"%(anchors[0]['href'])
-                        backer_name = anchors[0].text
+            self.error = "backer_nocount"
+            print backer_url
+            return False
+        if backer_count > 10:
+            backer_url = self.url+"/backers"
+            backer_visit_trial = 2
+            while 1:
+                try:
+                    pb.goto(backer_url,filter_func = backer_exist_expected_condition, filter_time_out = 180)
+                    break
+                except:
+                    if backer_visit_trial > 0:
+                        backer_visit_trial -= 1
+                        continue
                     else:
-                        profile_url = 'na'
-                        backer_name = 'na'
-                    history = backer.select(".backings")
-                    if len(history) > 0:
-                        backing_hist_eles = re.findall(r"[0-9,]+",history[0].text)
-                        if len(backing_hist_eles) > 0:
-                            backing_hist = int(backing_hist_eles[0].replace(",","").strip())
+                        self.error = "backer timeout"
+                        return False
+            try:
+                p = pb.get_page_source()
+                s = BS(p,'html.parser')
+                frame = s.select("div.NS_backers__backing_row .meta a")
+                pb.temp_backer_number = len(frame) # temp variable
+                if len(frame) >= 50: # has pagination (update per 10)
+                    while 1: # pagination control
+                        if abs(backer_count - pb.temp_backer_number) < 10:
+                            break
+                        pb.scroll_down(filter_func = backer_scroll_expected_condition, 
+                                       filter_time_out = 300) # wait for three minutes
+                        p = pb.get_page_source()
+                        s = BS(p,'html.parser')
+                        frame = s.select("div.NS_backers__backing_row .meta a")
+                        nowc = len(frame) # get current number
+                        if not self.quietly:
+                            sys.stdout.write(".[%03d:backer_page = %04d]."%(self.my_id,nowc))
+                            sys.stdout.flush()
+                        if nowc == 0 or (nowc % 50) != 0: #precondition, check end (from 51)
+                            break # the final page does not contain 50 projects (less than that)
+                #get backers
+                s = BS(p,'html.parser')
+                frame = s.select("div.NS_backers__backing_row")
+                backers_append = self.backers.append
+                if len(frame) > 0:
+                    for backer in frame:
+                        anchors = backer.select(".meta a")
+                        if len(anchors) > 0:
+                            profile_url = "%s"%(anchors[0]['href'])
+                            backer_name = anchors[0].text
+                        else:
+                            profile_url = 'na'
+                            backer_name = 'na'
+                        history = backer.select(".backings")
+                        if len(history) > 0:
+                            backing_hist_eles = re.findall(r"[0-9,]+",history[0].text)
+                            if len(backing_hist_eles) > 0:
+                                backing_hist = int(backing_hist_eles[0].replace(",","").strip())
+                            else:
+                                backing_hist = 0
                         else:
                             backing_hist = 0
-                    else:
-                        backing_hist = 0
-                    backers_append((profile_url,backer_name,backing_hist))
-        except:
-            self.error = "backer"
-            return False
+                        backers_append((profile_url,backer_name,backing_hist))
+            except:
+                self.error = "backer ajax"
+                return False
         return True
     def prep_database_mysql(self):
         sql_create_table1 = """
