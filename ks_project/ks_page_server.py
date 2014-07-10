@@ -168,17 +168,21 @@ class KickstarterPageAnalyzer(Thread):
         if self.pb == None: # if there is no browser, create new one
             self.pb = PB(noimage=True)        
         if not self.quietly:
-            sys.stdout.write("..[%03d:PB].."%self.my_id)
+            sys.stdout.write(".[%03d:PB]."%self.my_id)
             sys.stdout.flush()
         waiting_noticed = False
         while self.running:
             try:
                 self.ts_id, self.project_id, self.url = inque.get(block = True, timeout = 60)
                 waiting_noticed = False
-                sys.stdout.write(".ready.")
+                sys.stdout.write(".[%03d:ready]."%self.my_id)
                 sys.stdout.flush()                
                 if self.read(self.ts_id, self.project_id, self.url): # for clear representation
+                    sys.stdout.write(".[%03d:read_OK]."%self.my_id)
+                    sys.stdout.flush()                
                     if self.analyze():
+                        sys.stdout.write(".[%03d:analysis_OK]."%self.my_id)
+                        sys.stdout.flush()                
                         if SS.SQLITE_MYSQL == 'sqlite':
                             self.prep_database()
                             self.write_database()
@@ -187,10 +191,15 @@ class KickstarterPageAnalyzer(Thread):
                             self.write_database_mysql()
                         self.check_error_log() # if successful, clean up error.
                     else:
+                        sys.stdout.write(".[%03d:error_log]."%self.my_id)
+                        sys.stdout.flush()                
                         self.write_error_log()
                 else:
+                    sys.stdout.write(".[%03d:error_log]."%self.my_id)
+                    sys.stdout.flush()                
                     self.write_error_log()
                 self.clear()
+                sys.stdout.write(".[%03d:complete_id:%d]."%(self.my_id,self.project_id,))
                 inque.task_done()
             except Queue.Empty:
                 reload(SS)
@@ -464,7 +473,7 @@ class KickstarterPageAnalyzer(Thread):
                         if abs(backer_count - pb.temp_backer_number) < 10:
                             break
                         pb.scroll_down(filter_func = backer_scroll_expected_condition, 
-                                       filter_time_out = 300) # wait for three minutes
+                                       filter_time_out = 10) # wait for three minutes
                         p = pb.get_page_source()
                         s = BS(p,'html.parser')
                         frame = s.select("div.NS_backers__backing_row .meta a")

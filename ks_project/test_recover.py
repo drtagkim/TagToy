@@ -1,4 +1,4 @@
-import sys,sqlite3,time
+import sys,sqlite3,time,socket
 import mysql.connector
 import server_setting as SS
 
@@ -8,7 +8,9 @@ def get_time_stamp():
     return ts_id
 
 def recover_error():
+    host = socket.gethostname()
     ts_id = get_time_stamp()
+    print "RECOVERY STARTS..."
     if SS.SQLITE_MYSQL == 'sqlite':
         con = sqlite3.connect(SS.DATABASE_NAME, timeout = SS.LOCK_TIMEOUT)
         cur = con.cursor()
@@ -23,7 +25,8 @@ def recover_error():
                 continue
             client = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
             client.connect((host,SS.PROJECT_PAGE_PORT))
-            client.send(repr(row))
+            recover_data = [row[0],row[1],row[2]]
+            client.send(repr(recover_data))
             client.shutdown(socket.SHUT_RDWR) #disconnet
             client.close() #stream socket out
             print "recover try ID: %d"%k
@@ -48,11 +51,13 @@ def recover_error():
                 continue
             client = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
             client.connect((host,SS.PROJECT_PAGE_PORT))
-            client.send(repr(row))
+            recover_data = [row[0],row[1],row[2]]
+            client.send(repr(recover_data))
             client.shutdown(socket.SHUT_RDWR) #disconnet
             client.close() #stream socket out
             print "recover try ID: %d"%k
             time.sleep(0.5)
         cur.close()
         con.close()
-    
+if __name__ == "__main__":
+    recover_error()
