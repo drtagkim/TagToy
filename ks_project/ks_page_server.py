@@ -198,8 +198,8 @@ class KickstarterPageAnalyzer(Thread):
                     sys.stdout.write(".[%03d:error_log]."%self.my_id)
                     sys.stdout.flush()                
                     self.write_error_log()
-                self.clear()
                 sys.stdout.write(".[%03d:complete_id:%d]."%(self.my_id,self.project_id,))
+                self.clear()
                 inque.task_done()
             except Queue.Empty:
                 reload(SS)

@@ -59,7 +59,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         return rv
     def stop(self):
         self.running = False
-    def scrap(self, category_id_input, time_lag = -1):
+    def scrap(self, category_id_input, time_lag = -2):
         """
 |  Main
 |  To collect everything, set full as True otherwise False
@@ -94,6 +94,8 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 break
             else:
                 page += 1 #pagination
+            not_live_set = 0
+            compare_set = len(projects)
             for project in projects:
                 # ABOUT PROJECT
                 project_id = project['id']
@@ -128,7 +130,7 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 deadline_unix = project['deadline']
                 deadline_str = (datetime.fromtimestamp(deadline_unix)).strftime("%Y-%m-%d %H:%M")
                 deadline_comp = datetime.fromtimestamp(deadline_unix) 
-                currently = ((deadline_comp - ts_comp).days >= time_lag ) # including yesterday...
+                currently = 1
                 # ABOUT CREATOR
                 creator = project['creator']
                 creator_id = creator['id']
@@ -165,24 +167,28 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                     location_nearby_web2 = ""
                 #
                 if not SS.SCRAP_FULL:
-                    if not currently:
-                        breaker = True
-                        break
+                    if state != 'live':
+                        not_live_set += 1
+                        continue
                 rv_static_append([project_id,project_name,project_slug,country,created_at_unix,created_at_str,
                         project_url,desc,photo,category_parent,category_name,category_id,launched_at_unix,launched_at_str,
                         goal,currency,backers,pledged,state,currently,state_changed_unix,
                         state_changed_str,deadline_unix,deadline_str,creator_id,creator_url_slug,
                         creator_name,creator_url_api,creator_url_web,location_country,
                         location_name,location_slug,location_nearby_api,location_nearby_web1,location_nearby_web2,])
-                rv_dynamic_append([ts_id,project_id,backers,pledged,state,currently,
+                rv_dynamic_append([ts_id,project_id,backers,pledged,state,
                                    state_changed_unix,state_changed_str,deadline_unix,deadline_str,
                                    ])
                 rv_search_temp_append([ts_id,project_id,project_url])
                 tick += 1
-            sys.stdout.write(".[%03d:%06d/%06d]."%(self.my_id,tick,self.total_num))
-            sys.stdout.flush()                  
-            if breaker:
+            if not_live_set >= compare_set:
                 break
+            if SS.QUIETLY:
+                sys.stdout.write(".")
+                sys.stdout.flush()
+            else:
+                sys.stdout.write(".[%03d:%06d/%06d]."%(self.my_id,tick,self.total_num))
+                sys.stdout.flush()                  
     def export_mysql(self):
         sql_create_static = """
         CREATE TABLE IF NOT EXISTS `project_benchmark` (
@@ -233,7 +239,6 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
             `backers` INT,
             `pledged` FLOAT,
             `state` TEXT,
-            `currently` INT,
             `state_changed_unix` INT,
             `state_changed_str` VARCHAR(100),
             `deadline_unix` INT,
@@ -263,9 +268,9 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         """
         sql_insert_dynamic = """
             INSERT IGNORE INTO project_history (
-                ts_id,project_id,backers,pledged,state,currently,
+                ts_id,project_id,backers,pledged,state,
                 state_changed_unix,state_changed_str,deadline_unix,deadline_str
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
         sql_insert_project_search = """
             INSERT IGNORE INTO project_search_temp (
@@ -351,7 +356,6 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
                 backers NUMBER,
                 pledged NUMBER,
                 state TEXT,
-                currently NUMBER,
                 state_changed_unix NUMBER,
                 state_changed_str TEXT,
                 deadline_unix NUMBER,
@@ -377,9 +381,9 @@ class KickstarterProjectCollectorJson(Thread): # multithreading
         """
         sql_insert_dynamic = """
             INSERT INTO project_history (
-                ts_id,project_id,backers,pledged,state,currently,
+                ts_id,project_id,backers,pledged,state,
                 state_changed_unix,state_changed_str,deadline_unix,deadline_str
-            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?)
         """
         sql_insert_project_search = """
             INSERT INTO project_search_temp (
