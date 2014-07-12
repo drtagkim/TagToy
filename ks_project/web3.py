@@ -193,14 +193,17 @@ select.deselect_all()
         from selenium import webdriver
         if noimage:
             self.driver = webdriver.PhantomJS(service_args=['--load-images=no',
-                                                            '--webdriver-loglevel=NONE'
+                                                            '--webdriver-loglevel=NONE',
+                                                            '--disk-cache=yes',
+                                                            '--max-disk-cache-size=1000000'
                                                             ])
-            # http://phantomjs.org/api/command-line.html (service_args reference)
+            self.driver.set_window_size(0,0)
         else:
-            self.driver = webdriver.PhantomJS(service_args=['--webdriver-loglevel=NONE'])
-        # graphic device setting
-        self.driver.set_window_size(1024,768)
-
+            self.driver = webdriver.PhantomJS(service_args=['--webdriver-loglevel=NONE',
+                                                            '--disk-cache=yes',
+                                                            '--max-disk-cache-size=1000000'
+                                                            ])
+            self.driver.set_window_size(1024,768)
     def goto(self,url, frame_switch = False, filter_func = None, filter_time_out = 120):
         """
 | filter_func: sufficient condition of loading a page
@@ -271,12 +274,11 @@ select.deselect_all()
         return self.driver.execute_script("return $(document).height() <= $(window).height()+$(window).scrollTop();")
         #except WebDriverException:
         #    pass
-    def scroll_down(self, filter_time_out = 30,filter_func = None):
+    def scroll_down(self, filter_time_out = 30,filter_func = None, brutal_wait = 0.2):
         rv = False
-        script_0 = "window.scrollTo(0, 0);"
         script_1 = "window.scrollTo(0, document.body.scrollHeight);"
-        self.execute_javascript(script_0)
         self.execute_javascript(script_1)
+        time.sleep(brutal_wait)
         if filter_func != None:
             rv = WebDriverWait(self,filter_time_out).until(filter_func)
         return rv

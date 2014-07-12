@@ -6,7 +6,7 @@ AUTHOR: DRTAGKIM
 # GENERAL SETTING ===============================
 HAS_IMAGE = False
 QUIETLY = False
-
+RECOVER_TRIAL = -1
 # DATABASE SETTING ==============================
 DATABASE_NAME = "sample.db" #SQLite3 database name (main)
 CREATE_SCHEMA = False

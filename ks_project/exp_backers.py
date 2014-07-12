@@ -92,6 +92,7 @@ if __name__ =="__main__":
     #url = "https://www.kickstarter.com/projects/1576907254/little-nemo-dream-another-dream"
     #url ="https://www.kickstarter.com/projects/76843433/dance-dsm-bringing-competitive-swing-to-a-city-wit"
     #url = "https://www.kickstarter.com/projects/938861325/sherman-dances-a-childrens-book"
-    url = "https://www.kickstarter.com/projects/evanyoung/the-last-west-volume-two"
+    #url = "https://www.kickstarter.com/projects/evanyoung/the-last-west-volume-two"
+    url = "https://www.kickstarter.com/projects/laboratory/shadows-of-arkham"
     backers = test(url)
     print "Num = %d" % len(backers)
