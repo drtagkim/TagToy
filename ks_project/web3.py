@@ -186,7 +186,7 @@ select.deselect_all()
 
 
     """
-    def __init__(self,noimage=True):
+    def __init__(self,noimage=True,timeout=600):
         """
 >>> pb = PhantomBrowser()
         """
@@ -204,6 +204,7 @@ select.deselect_all()
                                                             '--max-disk-cache-size=1000000'
                                                             ])
             self.driver.set_window_size(1024,768)
+        self.driver.set_page_load_timeout(timeout)
     def goto(self,url, frame_switch = False, filter_func = None, filter_time_out = 120):
         """
 | filter_func: sufficient condition of loading a page

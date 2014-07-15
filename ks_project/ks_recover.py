@@ -68,7 +68,10 @@ def check():
         cur.execute("SELECT COUNT(*) FROM error_log WHERE ts_id = ? AND recover_trial = 1",(ts_id,))
         rows = cur.fetchall()
         if len(rows) > 0:
-            rv = True
+            if rows[0][0] > 0:
+                rv = True
+            else:
+                rv = False
         cur.close()
         con.close()
     else:
@@ -78,10 +81,15 @@ def check():
                                               database=SS.DATABASE,
                                               connection_timeout = SS.LOCK_TIMEOUT)
         cur = con.cursor()
-        cur.execute("SELECT COUNT(*) FROM error_log WHERE ts_id = %s recover_trial = 1",(ts_id,))
+        cur.execute("SELECT COUNT(*) FROM error_log WHERE ts_id = %s AND recover_trial = 1",(ts_id,))
         rows = cur.fetchall()
         if len(rows) > 0:
-            rv = True
+            if rows[0][0] > 0:
+                rv = True
+            else:
+                rv = False
+        cur.close()
+        con.close()
     return rv
     
 def main():
@@ -103,6 +111,7 @@ def main():
                 cnt += 1
             else:
                 break
+        print "Waiting..."
         time.sleep(60)
 if __name__ == "__main__":
     print "========================="

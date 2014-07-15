@@ -70,6 +70,41 @@ def backer_exist_expected_condition(pb):
     frame = soup.select("div.NS_backers__backing_row .meta a")
     rv = len(frame) > 0
     return rv
+# MULTI-PROCESSING
+# BACKER CALL
+def backer_call_multiprocessing(url,cursor=None):
+    if cursor is not None:
+        param_backer = {}
+        param_backer['cursor'] = cursor
+        while 1:
+            c_backer = requests.get(backer_url, 
+                                    headers = request_header, 
+                                    params=param_backer,
+                                    timeout = 600)
+            if c_backer.status_code == 200:
+                bc_text = c_backer.text
+                c_backer.close()
+                break
+            elif c_backer.status_code == 429:
+                c_backer.close()
+                sys.stdout.write(".?.")
+                sys.stdout.flush()
+                time.sleep(SS.PROJECT_PAGE_SERVER_THREAD_POOL/float(2))
+    else:
+        while 1:
+            c_backer = requests.get(backer_url, 
+                                    headers = request_header,
+                                    timeout = 600)
+            if c_backer.status_code == 200:
+                bc_text = c_backer.text
+                c_backer.close()
+                break
+            elif c_backer.status_code == 429:
+                c_backer.close()
+                sys.stdout.write(".?.")
+                sys.stdout.flush()
+                time.sleep(SS.PROJECT_PAGE_SERVER_THREAD_POOL/float(2))
+    return bc_text
 # PROGRAM STARTS =====
 class ImageDownloader(Thread):
     '''
@@ -103,7 +138,7 @@ class ImageDownloader(Thread):
             try:
                 src = inque.get(block = True, timeout = 1)
                 if has_image:
-                    r = requests.get(src)
+                    r = requests.get(src, timeout = 180)
                     if r.status_code == 200: # if everything is OK,
                         c = r.content
                         outque.put([c,src]) # return ([binary data, file url])
@@ -155,6 +190,7 @@ class KickstarterPageAnalyzer(Thread):
         self.page_compressed = None
         self.facebook_like = -1
         self.comments_count = -1
+        self.updates_count = -1
         #log
         self.error = ""
     def terminate(self):
@@ -213,7 +249,7 @@ class KickstarterPageAnalyzer(Thread):
                     sys.stdout.flush()
                     waiting_noticed = True
                     WAITING_AGENT -= 1
-                    sys.stdout.wirte(" {%d} " % WAITING_AGENT)
+                    sys.stdout.write(" {%d} " % WAITING_AGENT)
                     sys.stdout.flush()
                     if WAITING_AGENT <= 0:
                         sys.stdout.write(". (@.@) %03d ."%WAITING_AGENT)
@@ -327,6 +363,12 @@ class KickstarterPageAnalyzer(Thread):
             self.comments_count = int(frame[0]['data-comments-count'])
         else:
             self.comments_count = -1 #means error
+        # number o update
+        frame = soup.select("#updates_count")
+        if len(frame) > 0:
+            self.updates_count = int(frame[0]['data-updates-count'])
+        else:
+            self.updates_count = -1 #means error
         # reward
         frame = soup.select(".NS-projects-reward")
         proj_reward_append = self.projects_reward_result.append
@@ -417,13 +459,16 @@ class KickstarterPageAnalyzer(Thread):
                 if self.video_has_high > 0 or self.video_has_base > 0:
                     url = self.video_fname
                     # video duration
-                    with closing(requests.get(url,stream = True,verify = False)) as r:
-                        a = r.raw.read(2000) #2kb buffer
-                        b = StringIO()
-                        b.write(a)
-                        c = mp4.File(b)
-                        self.video_length = c.duration
-                        b.close()
+                    try:
+                        with closing(requests.get(url,stream = True,verify = False, timeout = 600)) as r:
+                            a = r.raw.read(2000) #2kb buffer
+                            b = StringIO()
+                            b.write(a)
+                            c = mp4.File(b)
+                            self.video_length = c.duration
+                            b.close()
+                    except:
+                        self.video_length = -1 # if requests got an error
         # collect full description
         frame = soup.select(".full-description")        
         rv = ""
@@ -461,74 +506,107 @@ class KickstarterPageAnalyzer(Thread):
                 sys.stdout.flush()            
             self.facebook_like = -1
         #backers =====================
-        backer_count_eles  = soup.select("div#backers_count")
-        if len(backer_count_eles) > 0:
-            backer_count = int(backer_count_eles[0]['data-backers-count'])
-        else:
-            self.error = "backer_nocount"
-            print backer_url
-            return False
-        if backer_count > 10:
+        try:
             backer_url = self.url+"/backers"
-            backer_visit_trial = 2
+            param_backer = {}
+            backers_append = self.backers.append
+            bc_text = ""
+            backer_first_trial = SS.BACKER_CONNECTION_RECOVER
             while 1:
-                try:
-                    pb.goto(backer_url,filter_func = backer_exist_expected_condition, filter_time_out = 600)
-                    break
-                except:
-                    if backer_visit_trial > 0:
-                        backer_visit_trial -= 1
+                request_header = { 'User-Agent' : 'Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11',
+                             'connection' : 'close',
+                             'charset' : 'utf-8'}
+                backer_first_timeout_trial = SS.BACKER_CONNECTION_RECOVER
+                while 1:
+                    try:
+                        c_backer = requests.get(backer_url, headers = request_header, timeout = 600)
+                        break
+                    except requests.Timeout:
+                        backer_first_timeout_trial -= 1
+                        if backer_first_timeout_trial < 0:
+                            self.error = "backer_first_timeout"
+                            return False
                         continue
-                    else:
-                        self.error = "backer timeout"
+                if c_backer.status_code == 200:
+                    bc_text = c_backer.text
+                    c_backer.close()
+                    break
+                elif c_backer.status_code == 429:
+                    c_backer.close()
+                    time.sleep(SS.PROJECT_PAGE_SERVER_THREAD_POOL) #for five second sleep
+                    continue
+                else:
+                    if backer_first_trial < 0:
+                        self.error = "backer_first"
                         return False
-            try:
-                p = pb.get_page_source()
-                s = BS(p,'html.parser')
-                frame = s.select("div.NS_backers__backing_row .meta a")
-                pb.temp_backer_number = len(frame) # temp variable
-                if len(frame) >= 50: # has pagination (update per 10)
-                    while 1: # pagination control
-                        if abs(backer_count - pb.temp_backer_number) < 10:
-                            break
-                        pb.scroll_down(filter_func = backer_scroll_expected_condition, 
-                                       filter_time_out = 600) # wait for three minutes
-                        p = pb.get_page_source()
-                        s = BS(p,'html.parser')
-                        frame = s.select("div.NS_backers__backing_row .meta a")
-                        nowc = len(frame) # get current number
-                        if not self.quietly:
-                            sys.stdout.write(".[%03d:backer_page = %04d]."%(self.my_id,nowc))
-                            sys.stdout.flush()
-                        if nowc == 0 or (nowc % 50) != 0: #precondition, check end (from 51)
-                            break # the final page does not contain 50 projects (less than that)
-                #get backers
-                s = BS(p,'html.parser')
-                frame = s.select("div.NS_backers__backing_row")
-                backers_append = self.backers.append
-                if len(frame) > 0:
-                    for backer in frame:
-                        anchors = backer.select(".meta a")
-                        if len(anchors) > 0:
-                            profile_url = "%s"%(anchors[0]['href'])
-                            backer_name = anchors[0].text
-                        else:
-                            profile_url = 'na'
-                            backer_name = 'na'
-                        history = backer.select(".backings")
-                        if len(history) > 0:
-                            backing_hist_eles = re.findall(r"[0-9,]+",history[0].text)
-                            if len(backing_hist_eles) > 0:
-                                backing_hist = int(backing_hist_eles[0].replace(",","").strip())
-                            else:
-                                backing_hist = 0
-                        else:
-                            backing_hist = 0
-                        backers_append((profile_url,backer_name,backing_hist))
-            except:
-                self.error = "backer ajax"
-                return False
+                    else:
+                        backer_first_trial -= 1
+                        time.sleep(SS.PROJECT_PAGE_SERVER_THREAD_POOL)
+                        continue
+            soup_backer = BS(bc_text,'html.parser')
+            ele_backers = soup_backer.select("div.NS_backers__backing_row")
+            self.get_backer_data(ele_backers)
+            cursors = [ele['data-cursor'] for ele in ele_backers]
+            #time.sleep(0.5)
+            while len(cursors) > 0:
+                backer_trial = SS.BACKER_CONNECTION_RECOVER
+                bc_text = ""
+                param_backer['cursor'] = cursors[-1]
+                while 1:
+                    try:
+                        c_backer = requests.get(backer_url, 
+                                                headers = request_header, 
+                                                params=param_backer,
+                                                timeout = 600)
+                    except requests.Timeout:
+                        backer_trial -= 1
+                        if backer_trial < 0:
+                            self.error = "backer_timeout"
+                            return False
+                        continue
+                    if c_backer.status_code == 200:
+                        bc_text = c_backer.text
+                        c_backer.close()
+                        break
+                    elif c_backer.status_code == 429:
+                        c_backer.close()
+                        sys.stdout.write(".?.")
+                        sys.stdout.flush()
+                        time.sleep(SS.PROJECT_PAGE_SERVER_THREAD_POOL)
+                        continue
+                soup_backer = BS(bc_text,'html.parser')
+                ele_backers = soup_backer.select("div.NS_backers__backing_row")
+                self.get_backer_data(ele_backers)
+                cursors = [ele['data-cursor'] for ele in ele_backers]
+                time.sleep(1) # politeness
+        except:
+            self.error = "backer"
+            return False
         return True
+    def get_backer_data(self,frame):
+        backers_append = self.backers.append
+        if len(frame) > 0:
+            for backer in frame:
+                anchors = backer.select(".meta a")
+                if len(anchors) > 0:
+                    profile_url = "%s"%(anchors[0]['href'])
+                    backer_name = anchors[0].text
+                else:
+                    profile_url = 'na'
+                    backer_name = 'na'
+                history = backer.select(".backings")
+                if len(history) > 0:
+                    backing_hist_eles = re.findall(r"[0-9,]+",history[0].text)
+                    if len(backing_hist_eles) > 0:
+                        backing_hist = int(backing_hist_eles[0].replace(",","").strip())
+                    else:
+                        backing_hist = 0
+                else:
+                    backing_hist = 0
+                backers_append((profile_url,backer_name,backing_hist))
+        if not self.quietly:
+            sys.stdout.write(".[%03d:backer_page = %04d]."%(self.my_id,len(self.backers)))
+            sys.stdout.flush()
     def prep_database_mysql(self):
         sql_create_table1 = """
                     CREATE TABLE IF NOT EXISTS project_benchmark_sub (
@@ -551,6 +629,7 @@ class KickstarterPageAnalyzer(Thread):
                 video_has_base SMALLINT,
                 facebook_like INT,
                 comments_count INT,
+                updates_count INT,
                 PRIMARY KEY(ts_id,project_id)
 ) ENGINE = MyISAM CHARSET=utf8
 PARTITION BY KEY()
@@ -583,9 +662,9 @@ PARTITIONS 10
                 ts_id, project_id, project_reward_number,
                 project_reward_mim_money_list, project_reward_description_total_length,
                 project_reward_description_str, image_count, image_fnames_list, description_length, description_str, risks_length, risks_str, video_has, 
-                video_length, video_fname, video_has_high, video_has_base, facebook_like, comments_count
+                video_length, video_fname, video_has_high, video_has_base, facebook_like, comments_count, updates_count,
                 ) VALUES (
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
             )
         """
         self.sql_insert2 = """
@@ -630,6 +709,7 @@ PARTITIONS 10
                 video_has_base NUMBER,
                 facebook_like NUMBER,
                 comments_count NUMBER,
+                updates_count NUMBER,
                 CONSTRAINT update_rule UNIQUE (ts_id, project_id) ON CONFLICT IGNORE)
         """
         sql_create_table2 = """
@@ -655,9 +735,9 @@ PARTITIONS 10
                 ts_id, project_id, project_reward_number,
                 project_reward_mim_money_list, project_reward_description_total_length,
                 project_reward_description_str, image_count, image_fnames_list, description_length, description_str, risks_length, risks_str, video_has, 
-                video_length, video_fname, video_has_high, video_has_base, facebook_like, comments_count
+                video_length, video_fname, video_has_high, video_has_base, facebook_like, comments_count, updates_count
                 ) VALUES (
-                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
             )
         """
         self.sql_insert2 = """
@@ -709,7 +789,7 @@ PARTITIONS 10
             repr(zlib.compress(repr(self.full_description))),
             risks_length,
             repr(zlib.compress(repr(self.risks))),
-            self.video_has,self.video_length,self.video_fname,self.video_has_high,self.video_has_base,self.facebook_like,self.comments_count
+            self.video_has,self.video_length,self.video_fname,self.video_has_high,self.video_has_base,self.facebook_like,self.comments_count,self.updates_count
             ))
         con.commit()
         backer_input_list = []
@@ -751,7 +831,7 @@ PARTITIONS 10
             repr(zlib.compress(repr(self.full_description))),
             risks_length,
             repr(zlib.compress(repr(self.risks))),
-            self.video_has,self.video_length,self.video_fname,self.video_has_high,self.video_has_base,self.facebook_like,self.comments_count
+            self.video_has,self.video_length,self.video_fname,self.video_has_high,self.video_has_base,self.facebook_like,self.comments_count,self.updates_count
             ))
         con.commit()
         backer_input_list = []
